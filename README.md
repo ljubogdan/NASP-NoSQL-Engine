@@ -1,7 +1,8 @@
-### NASP-NoSQL-Engine
+# NASP-NoSQL-Engine
 
 ## Struktura projekta (generisano - treba ažurirati pri dodavanju)
 
+```
 NASP-NoSQL-Engine/
 │
 ├── cmd/
@@ -43,3 +44,4 @@ NASP-NoSQL-Engine/
 │   └── api_test.go
 │
 └── go.mod
+```
