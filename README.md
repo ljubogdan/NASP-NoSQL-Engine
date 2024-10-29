@@ -30,9 +30,16 @@ NASP-NoSQL-Engine/
 │   │   ├── block_manager.go 
 │   │   └── block_manager_test.go
 │   │
-│   └── compaction/
-│       ├── compaction.go
-│       └── compaction_test.go
+│   ├── compaction/
+│   │   ├── compaction.go
+│   │   └── compaction_test.go
+│   │
+│   └── probabilistics/
+│       ├── bloom_filter.go
+│       ├── count_min_sketch.go
+│       ├── hyperloglog.go
+│       ├── probabilistics_test.go
+│       └── simhash.go
 │
 ├── pkg/
 │   └── config/
