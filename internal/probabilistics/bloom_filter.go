@@ -34,13 +34,13 @@ func GenerateHashFunctions(number uint32) []HashWithSeed {
 	return hwsArray
 }
 
-// M ---> opt. veličina niza, falsePositive ---> izmedju 0 i 1
-func CalculateM(expectedElements int, falsePositiveRate float64) uint {
+// M ---> opt. veličina niza, falsePositive ---> izmedju 0 i 1 (0 - 100%)
+func CalculateM_BF(expectedElements int, falsePositiveRate float64) uint {
 	return uint(math.Ceil(float64(expectedElements) * math.Abs(math.Log(falsePositiveRate)) / math.Pow(math.Log(2), float64(2))))
 }
 
 // m ---> veličina bitnog niza, K ---> optimalan broj hash funkcija
-func CalculateK(expectedElements int, m uint) uint {	
+func CalculateK_BF(expectedElements int, m uint) uint {	
 	return uint(math.Ceil((float64(m) / float64(expectedElements)) * math.Log(2)))
 }
 
@@ -51,8 +51,8 @@ type BloomFilter struct {
 }
 
 func NewBloomFilter(expectedElements int, falsePositiveRate float64) *BloomFilter {
-	m := CalculateM(expectedElements, falsePositiveRate)
-	k := CalculateK(expectedElements, m)
+	m := CalculateM_BF(expectedElements, falsePositiveRate)
+	k := CalculateK_BF(expectedElements, m)
 	bitArray := make([]bool, m)
 	hashFunctions := GenerateHashFunctions(uint32(k))
 
@@ -134,7 +134,7 @@ func (bf *BloomFilter) SerializeToFile(filename string) error {
 	return nil
 }
 
-func DeserializeFromFile(filename string) (*BloomFilter, error) {
+func DeserializeFromFile_BF(filename string) (*BloomFilter, error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %v", err)

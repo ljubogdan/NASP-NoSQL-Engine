@@ -1,6 +1,7 @@
 package probabilistics
 
 import (
+	"os"
 	"testing"
 )
 
@@ -36,9 +37,9 @@ func TestBloomFilter(t *testing.T) {
 	if err := bf.SerializeToFile(filename); err != nil {
 		t.Fatalf("failed to serialize Bloom filter: %v", err)
 	}
-	//defer os.Remove(filename) // Brišemo fajl nakon testa
+	defer os.Remove(filename)
 
-	deserializedBF, err := DeserializeFromFile(filename)
+	deserializedBF, err := DeserializeFromFile_BF(filename)
 	if err != nil {
 		t.Fatalf("failed to deserialize Bloom filter: %v", err)
 	}
@@ -61,5 +62,73 @@ func TestBloomFilter(t *testing.T) {
 
 	if deserializedBF.Contains("bar") {
 		t.Errorf("Deserialized Bloom filter contains 'bar'")
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+// go test -v ./internal/probabilistics -run TestCountMinSketch
+
+func TestCountMinSketch(t *testing.T) {
+	cms := NewCountMinSketch(0.01, 0.01)
+
+	cms.Add("apple")
+	cms.Add("banana")
+	cms.Add("apple")
+	cms.Add("orange")
+	cms.Add("banana")
+	cms.Add("apple")
+
+	if count := cms.Count("apple"); count < 3 {
+		t.Errorf("Expected 'apple' count to be at least 3, got %d", count)
+	}
+
+	if count := cms.Count("banana"); count < 2 {
+		t.Errorf("Expected 'banana' count to be at least 2, got %d", count)
+	}
+
+	if count := cms.Count("orange"); count < 1 {
+		t.Errorf("Expected 'orange' count to be at least 1, got %d", count)
+	}
+
+	if count := cms.Count("grape"); count != 0 {
+		t.Errorf("Expected 'grape' count to be 0 or close to 0, got %d", count)
+	}
+
+	filename := "countminsketch_test.dat"
+	if err := cms.SerializeToFile(filename); err != nil {
+		t.Fatalf("Failed to serialize Count-Min Sketch: %v", err)
+	}
+	defer os.Remove(filename)
+
+	deserializedCMS, err := DeserializeFromFile_CMS(filename)
+	if err != nil {
+		t.Fatalf("Failed to deserialize Count-Min Sketch: %v", err)
+	}
+
+	if count := deserializedCMS.Count("apple"); count < 3 {
+		t.Errorf("Deserialized Count-Min Sketch: Expected 'apple' count to be at least 3, got %d", count)
+	}
+
+	if count := deserializedCMS.Count("banana"); count < 2 {
+		t.Errorf("Deserialized Count-Min Sketch: Expected 'banana' count to be at least 2, got %d", count)
+	}
+
+	if count := deserializedCMS.Count("orange"); count < 1 {
+		t.Errorf("Deserialized Count-Min Sketch: Expected 'orange' count to be at least 1, got %d", count)
+	}
+
+	if count := deserializedCMS.Count("grape"); count != 0 {
+		t.Errorf("Deserialized Count-Min Sketch: Expected 'grape' count to be 0 or close to 0, got %d", count)
 	}
 }
