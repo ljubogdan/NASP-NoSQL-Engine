@@ -65,18 +65,6 @@ func TestBloomFilter(t *testing.T) {
 	}
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
 // go test -v ./internal/probabilistics -run TestCountMinSketch
 
 func TestCountMinSketch(t *testing.T) {
@@ -131,4 +119,50 @@ func TestCountMinSketch(t *testing.T) {
 	if count := deserializedCMS.Count("grape"); count != 0 {
 		t.Errorf("Deserialized Count-Min Sketch: Expected 'grape' count to be 0 or close to 0, got %d", count)
 	}
+}
+
+// go test -v ./internal/probabilistics -run TestSkipList
+
+func TestSkipList(t *testing.T) {
+	skiplist := NewSkipList(5) // Kreiramo skip listu sa maksimalnom visinom 5
+
+	// Umetanje elemenata
+	elements := []string{"apple", "banana", "cherry", "date", "elderberry", "fig", "grape", "honeydew", "kiwi", "lemon"}
+	for _, elem := range elements {
+		skiplist.Insert(elem)
+	}
+
+	// Testiranje pretrage umetnutih elemenata
+	for _, elem := range elements {
+		if !skiplist.Search(elem) {
+			t.Errorf("SkipList should contain '%s'", elem)
+		}
+	}
+
+	// Testiranje pretrage za elemente koji nisu umetnuti
+	nonElements := []string{"mango", "nectarine", "orange", "papaya", "quince"}
+	for _, elem := range nonElements {
+		if skiplist.Search(elem) {
+			t.Errorf("SkipList should not contain '%s'", elem)
+		}
+	}
+
+	// Testiranje umetanja i pretrage dodatnih elemenata
+	additionalElements := []string{"raspberry", "strawberry", "tangerine", "ugli", "vanilla"}
+	for _, elem := range additionalElements {
+		skiplist.Insert(elem)
+		if !skiplist.Search(elem) {
+			t.Errorf("SkipList should contain '%s'", elem)
+		}
+	}
+
+	// Testiranje umetanja duplikata
+	for _, elem := range elements {
+		skiplist.Insert(elem)
+		if !skiplist.Search(elem) {
+			t.Errorf("SkipList should contain '%s' even after inserting duplicate", elem)
+		}
+	}
+
+	skiplist.PrintLevels()
 }
