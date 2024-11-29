@@ -167,4 +167,23 @@ func TestSkipList(t *testing.T) {
 	skiplist.PrintLevels()
 }
 
-//Test
+func TestHyperLogLog(t *testing.T) {
+	hll := NewHyperLogLog(16)
+	uniqueElementCount := uint32(100000)
+
+	for i := uint32(1); i < uniqueElementCount; i++ {
+		numberString := string(i)
+		hll.Add([]byte(numberString))
+	}
+
+	count := hll.Estimate()
+	difference := count - float64(uniqueElementCount)
+	if difference > float64(uniqueElementCount)*0.01 || difference < float64(uniqueElementCount)*(-0.01) {
+		t.Errorf("Estimation HyperLogLog: Expected unique element count to be witing 1%%  of %d, got %f", uniqueElementCount, count)
+	}
+
+	deserializedHLL := Deserialize_HLL(hll.Serialize())
+	if deserializedCount := deserializedHLL.Estimate(); count != deserializedCount {
+		t.Errorf("Deserialized HyperLogLog: Expected estimation after deserialization to be the same, got %f", deserializedCount)
+	}
+}
