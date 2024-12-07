@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
+	"NASP-NoSQL-Engine/api"
 )
 
 
 func main() {
-	fmt.Println("Hello, World!")
+	api.StartCLI()
 }

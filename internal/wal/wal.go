@@ -1,5 +1,6 @@
 package wal
 
+/*
 import (
 	"fmt"
 	"hash/crc32"
@@ -216,3 +217,5 @@ func DeserializeFromOffset(data []byte, offset int64) (*Entry, int, error) {
 
 	return entry, int(entrySize), nil
 }
+
+*/

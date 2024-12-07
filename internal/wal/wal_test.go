@@ -1,5 +1,6 @@
 package wal
 
+/*
 import (
 	//"fmt"
 	"os"
@@ -74,3 +75,5 @@ func TestWAL(t *testing.T) {
 
 	t.Log("WAL test passed")
 }
+
+*/

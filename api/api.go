@@ -1,3 +1,57 @@
 package api
 
-// Implementacija PUT, GET i DELETE operacija...
+import (
+	"bufio"
+	"fmt"
+	"os"
+)
+
+const (
+	reset  = "\033[0m"
+	blue   = "\033[34m"
+	green  = "\033[32m"
+	yellow = "\033[33m"
+	red    = "\033[31m"
+	bold   = "\033[1m"
+)
+
+func StartCLI() {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Println("\n" + bold + blue + "════════════════════════" + reset)
+		fmt.Println(bold + green + "\nChoose an option:" + reset)
+		fmt.Println("\n" + yellow + "1. PUT (key, value)" + reset)
+		fmt.Println(yellow + "2. GET (key)" + reset)
+		fmt.Println(yellow + "3. DELETE (key)" + reset)
+		fmt.Println(red + "4. EXIT" + reset)
+		fmt.Print("\n" + bold + blue + "════════════════════════\n\n" + reset)
+		fmt.Print(bold + "➤ Enter your choice: " + reset)
+
+		choice, _ := reader.ReadString('\n')
+		switch choice {
+		case "1\n":
+			handlePut()
+		case "2\n":
+			handleGet()
+		case "3\n":
+			handleDelete()
+		case "4\n":
+			fmt.Println(bold + red + "\nExiting..." + reset)
+			return
+		default:
+			fmt.Println(bold + red + "\nUnknown operation, please try again." + reset)
+		}
+	}
+}
+
+func handlePut() {
+	fmt.Println(bold + green + "\nPUT operation selected!" + reset)
+}
+
+func handleGet() {
+	fmt.Println(bold + blue + "\nGET operation selected!" + reset)
+}
+
+func handleDelete() {
+	fmt.Println(bold + yellow + "\nDELETE operation selected!" + reset)
+}
