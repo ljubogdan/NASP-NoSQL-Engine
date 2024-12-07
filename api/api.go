@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strings"
 )
 
 const (
@@ -16,6 +17,7 @@ const (
 )
 
 func StartCLI() {
+	SystemSetup()
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Println("\n" + bold + blue + "════════════════════════" + reset)
@@ -45,7 +47,26 @@ func StartCLI() {
 }
 
 func handlePut() {
-	fmt.Println(bold + green + "\nPUT operation selected!" + reset)
+	fmt.Print(bold + "\n➤ Enter key: " + reset)
+	reader := bufio.NewReader(os.Stdin)
+	key, _ := reader.ReadString('\n')
+	
+	key = strings.TrimSpace(key)
+
+	if key == "" {
+		fmt.Println(bold + red + "\nKey cannot be empty!" + reset)
+		return
+	}
+
+	fmt.Print(bold + "\n➤ Enter value: " + reset)
+
+	value, _ := reader.ReadString('\n')
+	value = strings.TrimSpace(value)
+
+	if value == "" {
+		fmt.Println(bold + red + "\nValue cannot be empty!" + reset)
+		return
+	}
 }
 
 func handleGet() {
