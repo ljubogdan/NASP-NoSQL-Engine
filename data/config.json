@@ -1,0 +1,33 @@
+{
+    "SYSTEM": {
+      "page_size": {
+        "min": 512,
+        "max": 16384
+      }
+    },
+    "WAL": {
+      "low_water_mark": null,
+      "blocks_per_wal": null
+    },
+    "BUFFER_POOL": {
+      "max_blocks": null
+    },
+    "MEMTABLE": {
+      "number_of_tables": null,
+      "entries_per_table": null,
+      "which_structure": null
+    },
+    "SSTABLE": {
+      "SSTABLE_DATA": {
+        "entries_per_table": null
+      },
+      "SSTABLE_INDEX": {},
+      "SSTABLE_SUMMARY": {
+        "nth_block": null
+      },
+      "SSTABLE_FILTER": {
+        "entries_per_table": null
+      }
+    }
+  }
+  
