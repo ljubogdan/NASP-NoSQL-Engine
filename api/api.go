@@ -17,6 +17,15 @@ const (
 )
 
 func StartCLI() {
+
+	// ovo je i dalje probna faza, ne sme ovako ostati
+	// ===============================================
+
+	writePathObject := NewWritePath()
+	fmt.Println(writePathObject.BlockManager)
+	fmt.Println(writePathObject.Wal)
+
+	// ===============================================
 	
 	reader := bufio.NewReader(os.Stdin)
 	for {
@@ -32,7 +41,7 @@ func StartCLI() {
 		choice, _ := reader.ReadString('\n')
 		switch choice {
 		case "1\n":
-			handlePut()
+			handlePut(writePathObject)
 		case "2\n":
 			handleGet()
 		case "3\n":
@@ -46,7 +55,7 @@ func StartCLI() {
 	}
 }
 
-func handlePut() {
+func handlePut(wpo *WritePath) {
 	fmt.Print(bold + "\n➤ Enter key: " + reset)
 	reader := bufio.NewReader(os.Stdin)
 	key, _ := reader.ReadString('\n')
@@ -67,6 +76,8 @@ func handlePut() {
 		fmt.Println(bold + red + "\nValue cannot be empty!" + reset)
 		return
 	}
+
+	wpo.WriteEntry(key, value)
 }
 
 func handleGet() {

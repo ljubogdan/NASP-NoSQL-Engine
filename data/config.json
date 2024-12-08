@@ -16,7 +16,10 @@
       "blocks_per_wal": 5
     },
     "BUFFER_POOL": {
-      "max_blocks": null
+      "capacity": 5
+    },
+    "CACHE_POOL": {
+      "capacity": 5
     },
     "MEMTABLE": {
       "number_of_tables": null,
