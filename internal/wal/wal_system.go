@@ -63,7 +63,6 @@ func CreateWAL() *WAL{
 	}
 
 	walPath := filepath.Join(WalsPath, walFile)
-	fmt.Println(walPath)
 	wal := &WAL{
 		BlocksPerWAL: bpw,
 		Path: walPath,

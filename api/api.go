@@ -17,7 +17,7 @@ const (
 )
 
 func StartCLI() {
-	SystemSetup()
+	
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Println("\n" + bold + blue + "════════════════════════" + reset)
