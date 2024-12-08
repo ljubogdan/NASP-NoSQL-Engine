@@ -5,5 +5,5 @@ import (
 )
 
 func SystemSetup() {
-	wal.DeleteOldWals()
+	wal.CreateWAL()
 }

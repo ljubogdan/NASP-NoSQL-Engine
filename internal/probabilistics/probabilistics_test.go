@@ -3,6 +3,7 @@ package probabilistics
 import (
 	"os"
 	"testing"
+	"strconv"
 )
 
 // go test -v ./internal/probabilistics -run TestBloomFilter
@@ -172,7 +173,7 @@ func TestHyperLogLog(t *testing.T) {
 	uniqueElementCount := uint32(100000)
 
 	for i := uint32(1); i < uniqueElementCount; i++ {
-		numberString := string(i)
+		numberString := strconv.Itoa(int(i))    // proveriti
 		hll.Add([]byte(numberString))
 	}
 

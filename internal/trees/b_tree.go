@@ -106,6 +106,8 @@ func (tree *BTree) Print() {
 	}
 }
 
+/*
+
 // testiranje;;; nisam završio ima par problema!!!
 func main() {
 	btree := NewBTree(3)
@@ -120,3 +122,5 @@ func main() {
 
 	btree.Print()
 }
+
+*/

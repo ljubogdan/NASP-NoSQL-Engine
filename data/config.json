@@ -2,12 +2,18 @@
     "SYSTEM": {
       "page_size": {
         "min": 512,
-        "max": 16384
+        "max": 16384,
+        "default": 512
+      },
+      "pages_per_block": {
+        "min": 1,
+        "max": 100,
+        "default": 1
       }
     },
     "WAL": {
       "low_watermark": 0,
-      "blocks_per_wal": null
+      "blocks_per_wal": 5
     },
     "BUFFER_POOL": {
       "max_blocks": null
