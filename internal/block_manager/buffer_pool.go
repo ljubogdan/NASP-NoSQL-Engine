@@ -2,13 +2,13 @@ package block_manager
 
 import (
 	"container/list"
-	"os"
 	"encoding/json"
+	"os"
 )
 
 type BufferPool struct {
 	Capacity uint32
-	Pool *list.List
+	Pool     *list.List
 }
 
 func NewBufferPool() *BufferPool {
@@ -21,7 +21,7 @@ func NewBufferPool() *BufferPool {
 
 	return &BufferPool{
 		Capacity: capacity,
-		Pool: list.New(),
+		Pool:     list.New(),
 	}
 }
 
@@ -32,15 +32,3 @@ func (bp *BufferPool) AddBlock(bb *BufferBlock) {
 
 	bp.Pool.PushBack(bb)
 }
-
-
-
-
-
-
-
-
-
-
-
-
