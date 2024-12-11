@@ -22,11 +22,14 @@ func StartCLI() {
 	// ===============================================
 
 	writePathObject := NewWritePath()
-	fmt.Println(writePathObject.BlockManager)
-	fmt.Println(writePathObject.Wal)
+	writePathObject.BlockManager.FillBufferPool(writePathObject.WalManager.Wal.Path)
+	for e := writePathObject.BlockManager.BufferPool.Pool.Front(); e != nil; e = e.Next() {
+		// printamo niz bajtova
+		fmt.Println(e.Value)
+	}
 
 	// ===============================================
-	
+
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Println("\n" + bold + blue + "════════════════════════" + reset)
@@ -59,7 +62,7 @@ func handlePut(wpo *WritePath) {
 	fmt.Print(bold + "\n➤ Enter key: " + reset)
 	reader := bufio.NewReader(os.Stdin)
 	key, _ := reader.ReadString('\n')
-	
+
 	key = strings.TrimSpace(key)
 
 	if key == "" {

@@ -37,13 +37,6 @@ func NewMerkleTree(data *[]block_manager.BufferBlock) *MerkleTree {
 	return merkle
 }
 
-func (merkle *MerkleTree) writeHash(data *[]byte, index int, separator byte) {
-	dataWithSeparator := append([]byte{separator}, (*data)[:]...) // Dodaj separator na kraj pre hash-ovanja zbog razdvajanja nivoa
-	blockHash := sha256.Sum256(dataWithSeparator)
-	for i := 0; i < 32; i++ {
-		merkle.hashes[index*32+i] = blockHash[i] // Verovatno postoji efikasniji način da se prepišu svi byte-ovi hash-a
-	}
-}
 
 func (merkle *MerkleTree) writeHashAsync(data *[]byte, index int, separator byte, wg *sync.WaitGroup) {
 	defer wg.Done()
@@ -135,4 +128,4 @@ func Deserialize_MT(data *[]byte) *MerkleTree {
 
 	merkle.generateTree(hashCount, blockCount, height)
 	return merkle
-}
+} 

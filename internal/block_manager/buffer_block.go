@@ -6,4 +6,10 @@ type BufferBlock struct {
 	Data        []byte
 }
 
-
+func NewBufferBlock(fileName string, blockNumber uint32, data []byte) *BufferBlock {
+	return &BufferBlock{
+		FileName:    fileName,
+		BlockNumber: blockNumber,
+		Data:        data,
+	}
+}

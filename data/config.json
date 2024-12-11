@@ -11,6 +11,14 @@
         "default": 1
       }
     },
+    "ENTRY": {
+      "max_key_size": {
+        "max": 200
+      },
+      "max_value_size": {
+        "max": 200
+      }
+    },
     "WAL": {
       "low_watermark": 0,
       "blocks_per_wal": 5
