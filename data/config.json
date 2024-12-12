@@ -3,7 +3,7 @@
       "page_size": {
         "min": 512,
         "max": 16384,
-        "default": 512
+        "default": 35
       },
       "pages_per_block": {
         "min": 1,

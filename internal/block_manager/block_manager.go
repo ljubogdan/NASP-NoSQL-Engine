@@ -3,9 +3,11 @@ package block_manager
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 const (
@@ -50,54 +52,38 @@ func (bm *BlockManager) FillBufferPool(walPath string) { // walFile je već krei
 
 	pageSize := uint32(config["SYSTEM"].(map[string]interface{})["page_size"].(map[string]interface{})["default"].(float64))
 	pagesPerBlock := uint32(config["SYSTEM"].(map[string]interface{})["pages_per_block"].(map[string]interface{})["default"].(float64))
+	blocksPerWal := uint32(config["WAL"].(map[string]interface{})["blocks_per_wal"].(float64))
 
 	blockSize := pageSize * pagesPerBlock
-	fmt.Println(blockSize)
 
 	file, err := os.Open(walPath)
 	HandleError(err, "Failed to open WAL file")
 	defer file.Close()
 
-	fileInfo, err := file.Stat() // proveravamo veličinu fajla
-	HandleError(err, "Failed to get file info")
+	// prolazimo kroz wal fajl i učitavamo blokove u buffer pool
+	// ako zafali za ceo blok popunimo ga nulama do kraja
+	// kreiramo blokova koliko je blocksPerWal
 
-	fileSize := uint32(fileInfo.Size())
+	for i := uint32(0); i < blocksPerWal; i++ {
+		data := make([]byte, blockSize)
+		n, err := file.Read(data[:])
+		if err != nil && err != io.EOF {
+			HandleError(err, "Failed to read from WAL file")
+		}
 
-	fullBlocks := fileSize / blockSize
-	partialBlockSize := fileSize % blockSize
-	partialBlocks := uint32(0)
-	if partialBlockSize != 0 {
-		partialBlocks = 1
-	}
+		if n < len(data) {
+			for j := n; j < len(data); j++ {
+				data[j] = 0
+			}
+		}
 
-	counter := uint32(0)
-	for counter < fullBlocks {
-		bytes := make([]byte, blockSize)
-		_, err := file.Read(bytes)
-		HandleError(err, "Failed to read block from WAL file")
-		block := NewBufferBlock(walFile, counter, bytes)
-		bm.BufferPool.AddBlock(block)
-		counter++
-	}
+		bb := &BufferBlock{
+			FileName: walFile,
+			BlockNumber: i,
+			Data: data,
+		}
 
-	if partialBlocks == 1 {
-		bytes := make([]byte, partialBlockSize)
-		_, err := file.Read(bytes)
-		HandleError(err, "Failed to read block from WAL file")
-
-		zeroBytes := make([]byte, blockSize-partialBlockSize)
-		bytes = append(bytes, zeroBytes...)
-
-		block := NewBufferBlock(walFile, counter, bytes)
-		bm.BufferPool.AddBlock(block)
-		counter++
-	}
-
-	for counter < bm.BufferPool.Capacity {
-		bytes := make([]byte, blockSize)
-		block := NewBufferBlock(walFile, counter, bytes)
-		bm.BufferPool.AddBlock(block)
-		counter++
+		bm.BufferPool.AddBlock(bb)
 	}
 }
 
@@ -110,3 +96,33 @@ func (bm *BlockManager) GetBlockFromBufferPool(index uint32) *BufferBlock {
 	}
 	return nil
 }
+
+func (bm *BlockManager) WriteBufferPoolToWal(walPath string) string {
+	file, err := os.OpenFile(walPath, os.O_RDWR, 0644)
+	HandleError(err, "Failed to open WAL file")
+	defer file.Close()
+
+	for e := bm.BufferPool.Pool.Front(); e != nil; e = e.Next() {
+		block := e.Value.(*BufferBlock)
+		_, err := file.Write(block.Data)
+		HandleError(err, "Failed to write block to WAL file")
+	}
+
+	err = file.Sync()	// stable write
+	HandleError(err, "Failed to sync WAL file")
+
+	bm.BufferPool.Clear()
+
+	walFile := filepath.Base(walPath)
+
+	num, _ := strconv.Atoi(walFile[4:])
+	newWalFile := fmt.Sprintf("wal_%05d", num+1)
+
+	_, err = os.Create(WalsPath + newWalFile)
+	HandleError(err, "Failed to create new WAL file")
+
+	bm.FillBufferPool(WalsPath + newWalFile)
+
+	return WalsPath + newWalFile
+}
+

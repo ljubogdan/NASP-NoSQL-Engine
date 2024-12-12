@@ -81,6 +81,11 @@ func handlePut(wpo *WritePath) {
 	}
 
 	wpo.WriteEntry(key, value)
+	// printamo kako izgleda buffer pool sada
+	for e := wpo.BlockManager.BufferPool.Pool.Front(); e != nil; e = e.Next() {
+		fmt.Println(e.Value)
+	}
+	
 }
 
 func handleGet() {

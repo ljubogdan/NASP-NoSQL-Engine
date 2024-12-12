@@ -32,3 +32,7 @@ func (bp *BufferPool) AddBlock(bb *BufferBlock) {
 
 	bp.Pool.PushBack(bb)
 }
+
+func (bp *BufferPool) Clear() {
+	bp.Pool.Init()
+}

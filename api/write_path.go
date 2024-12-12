@@ -43,13 +43,11 @@ func (wpo *WritePath) WriteEntry(key string, value string) {
 	keySize := uint32(len(key))
 	valueSize := uint32(len(value))
 
-	entrySize := uint32(minimalRequiredSize + keySize + valueSize)
-
 	blocksPerWal := wpo.WalManager.Wal.BlocksPerWAL
 	blockSize := uint32(len(wpo.BlockManager.GetBlockFromBufferPool(0).Data))
 	walSize := uint32(blockSize * blocksPerWal)
 
-	if entrySize > walSize {
+	if keySize+valueSize > (walSize - (blocksPerWal * minimalRequiredSize)) {
 		fmt.Println("\n" + "\033[31m" + "Entry size exceeds WAL size!" + "\033[0m")
 		return
 	}
@@ -70,21 +68,24 @@ func (wpo *WritePath) WriteEntry(key string, value string) {
 	positionInBufferPool := uint32(0)
 	found := false
 
-	for e := wpo.BlockManager.BufferPool.Pool.Front(); e != nil && !found; e = e.Next() {
-		for i := 0; i < len(e.Value.(*block_manager.BufferBlock).Data); i++ {
-			if e.Value.(*block_manager.BufferBlock).Data[i] == 0 {
-				positionInBlock = uint32(i)
+	for e := bufferPoolCopy.Pool.Back(); e != nil; e = e.Prev() {
+		for i := int(blockSize) - 1; i >= 0; i-- {
+			if e.Value.(*block_manager.BufferBlock).Data[i] != 0 {
+				positionInBlock = uint32(i) + 1
 				positionInBufferPool = e.Value.(*block_manager.BufferBlock).BlockNumber
 				found = true
 				break
 			}
+		}
+		if found {
+			break
 		}
 	}
 
 	crc32 := uint32(entry.CRC32([]byte(key + value)))
 	timestamp := uint64(time.Now().UnixNano())
 	tombstone := byte(0)
-	entryType := byte(0) // za početak nebitno jer je uvek full
+	entryType := byte(1) // za početak nebitno jer je uvek full
 
 	header := make([]byte, 0) // pravimo header koji će se uvek upisivati
 	header = append(header, entry.Uint32ToBytes(crc32)...)
@@ -94,6 +95,7 @@ func (wpo *WritePath) WriteEntry(key string, value string) {
 	header = append(header, entry.Uint64ToBytes(uint64(keySize))...)
 	header = append(header, entry.Uint64ToBytes(uint64(valueSize))...)
 
+	fmt.Println(header)
 	compactValue := make([]byte, 0)
 	compactValue = append(compactValue, []byte(key)...)
 	compactValue = append(compactValue, []byte(value)...)
@@ -107,7 +109,14 @@ func (wpo *WritePath) WriteEntry(key string, value string) {
 	compactBytesWritten := uint32(0)
 	compactValueCurrentPosition := uint32(0)
 
+	complete := false
+
 	for e := bufferPoolCopy.Pool.Front(); e != nil; e = e.Next() {
+
+		if complete {
+			break
+		}
+
 		if e.Value.(*block_manager.BufferBlock).BlockNumber == tempPositionInBufferPool {
 
 			if tempPositionInBlock+uint32(len(header)) <= blockSize { // pokušamo da upišemo prvo header
@@ -116,7 +125,7 @@ func (wpo *WritePath) WriteEntry(key string, value string) {
 					tempPositionInBlock++
 
 					if i == TYPE_START {
-						typeArray = append(typeArray, [2]uint32{tempPositionInBufferPool, tempPositionInBlock})
+						typeArray = append(typeArray, [2]uint32{tempPositionInBufferPool, tempPositionInBlock - 1})
 					}
 				}
 			} else {
@@ -135,10 +144,20 @@ func (wpo *WritePath) WriteEntry(key string, value string) {
 				compactValueCurrentPosition++
 				compactBytesWritten++
 				tempPositionInBlock++
-				if compactValueCurrentPosition == uint32(len(compactValue)) {
+				if compactBytesWritten == uint32(len(compactValue)) {
+					complete = true
 					break
 				}
 			}
+
+			// ako je sledeći blok nil a nismo završili sa upisom, onda failed = true
+			if e.Next() == nil && !complete {
+				failed = true
+				break
+			}
+
+			tempPositionInBlock = 0
+			tempPositionInBufferPool++
 
 		} else {
 			continue
@@ -146,9 +165,99 @@ func (wpo *WritePath) WriteEntry(key string, value string) {
 	}
 
 	if failed {
-		// druga logika sada ide
+		// znači da nam je buffer pool već pun, treba upiasti sve iz poola
+
+		newWalPath := wpo.BlockManager.WriteBufferPoolToWal(wpo.WalManager.Wal.Path) // on već upisuje sve iz buffer poola u wal, napravi nove fajlove i napuni buffer pool
+		wpo.WalManager.Wal.Path = newWalPath
+
+		// pozicije positionInBlock i positionInBufferPool su već uradjene
+
+		typeArray = make([][2]uint32, 0)
+		compactBytesWritten = uint32(0)
+		compactValueCurrentPosition = uint32(0)
+
+		complete = false
+
+		for e := wpo.BlockManager.BufferPool.Pool.Front(); e != nil; e = e.Next() {
+
+			if complete {
+				break
+			}
+
+			if e.Value.(*block_manager.BufferBlock).BlockNumber == positionInBufferPool {
+
+				if positionInBlock+uint32(len(header)) <= blockSize {
+					for i := 0; i < len(header); i++ {
+						e.Value.(*block_manager.BufferBlock).Data[positionInBlock] = header[i]
+						positionInBlock++
+
+						if i == TYPE_START {
+							typeArray = append(typeArray, [2]uint32{positionInBufferPool, positionInBlock - 1})
+						}
+					}
+				} else {
+					if e.Next() == nil {
+						fmt.Println("\n" + "\033[31m" + "Entry size exceeds WAL size!" + "\033[0m")
+						return
+					} else {
+						positionInBlock = 0
+						positionInBufferPool++
+						continue
+					}
+				}
+
+				for i := positionInBlock; i < blockSize; i++ {
+					e.Value.(*block_manager.BufferBlock).Data[i] = compactValue[compactValueCurrentPosition]
+					compactValueCurrentPosition++
+					compactBytesWritten++
+					positionInBlock++
+					if compactBytesWritten == uint32(len(compactValue)) {
+						complete = true
+						break
+					}
+				}
+
+				tempPositionInBlock = 0
+				tempPositionInBufferPool++
+
+			} else {
+				continue
+			}
+		}
+
+		// sada na osnovu typeArray popunjavamo TYPE elemente
+
+		if len(typeArray) == 1 {
+			wpo.BlockManager.GetBlockFromBufferPool(typeArray[0][0]).Data[typeArray[0][1]] = 1
+		} else {
+			wpo.BlockManager.GetBlockFromBufferPool(typeArray[0][0]).Data[typeArray[0][1]] = 2
+			wpo.BlockManager.GetBlockFromBufferPool(typeArray[len(typeArray)-1][0]).Data[typeArray[len(typeArray)-1][1]] = 4
+			for i := 1; i < len(typeArray)-1; i++ {
+				wpo.BlockManager.GetBlockFromBufferPool(typeArray[i][0]).Data[typeArray[i][1]] = 3
+			}
+		}
+
+		fmt.Println("\n" + "\033[32m" + "Entry successfully written to BUFFER POOL!" + "\033[0m")
+
 	} else {
-		// logika ako je sve ok...
+		for e := bufferPoolCopy.Pool.Front(); e != nil; e = e.Next() {
+			wpo.BlockManager.BufferPool.AddBlock(block_manager.NewBufferBlock(e.Value.(*block_manager.BufferBlock).FileName,
+				e.Value.(*block_manager.BufferBlock).BlockNumber, e.Value.(*block_manager.BufferBlock).Data))
+		}
+
+		bufferPoolCopy = nil
+
+		if len(typeArray) == 1 {
+			wpo.BlockManager.GetBlockFromBufferPool(typeArray[0][0]).Data[typeArray[0][1]] = 1
+		} else {
+			wpo.BlockManager.GetBlockFromBufferPool(typeArray[0][0]).Data[typeArray[0][1]] = 2
+			wpo.BlockManager.GetBlockFromBufferPool(typeArray[len(typeArray)-1][0]).Data[typeArray[len(typeArray)-1][1]] = 4
+			for i := 1; i < len(typeArray)-1; i++ {
+				wpo.BlockManager.GetBlockFromBufferPool(typeArray[i][0]).Data[typeArray[i][1]] = 3
+			}
+		}
+
+		fmt.Println("\n" + "\033[32m" + "Entry successfully written to BUFFER POOL!" + "\033[0m")
 	}
 
 }
