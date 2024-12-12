@@ -100,3 +100,13 @@ func (bm *BlockManager) FillBufferPool(walPath string) { // walFile je već krei
 		counter++
 	}
 }
+
+func (bm *BlockManager) GetBlockFromBufferPool(index uint32) *BufferBlock {
+	for e := bm.BufferPool.Pool.Front(); e != nil; e = e.Next() {
+		bb := e.Value.(*BufferBlock)
+		if bb.BlockNumber == index {
+			return bb
+		}
+	}
+	return nil
+}
