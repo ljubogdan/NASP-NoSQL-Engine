@@ -176,6 +176,9 @@ func (wpo *WritePath) WriteEntry(key string, value string) {
 		compactBytesWritten = uint32(0)
 		compactValueCurrentPosition = uint32(0)
 
+		positionInBlock = uint32(0)
+		positionInBufferPool = uint32(0)
+
 		complete = false
 
 		for e := wpo.BlockManager.BufferPool.Pool.Front(); e != nil; e = e.Next() {
@@ -217,8 +220,8 @@ func (wpo *WritePath) WriteEntry(key string, value string) {
 					}
 				}
 
-				tempPositionInBlock = 0
-				tempPositionInBufferPool++
+				positionInBlock = 0
+				positionInBufferPool++
 
 			} else {
 				continue
