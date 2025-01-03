@@ -97,7 +97,7 @@ func (bm *BlockManager) GetBlockFromBufferPool(index uint32) *BufferBlock {
 	return nil
 }
 
-func (bm *BlockManager) WriteBufferPoolToWal(walPath string) string {
+func (bm *BlockManager) WriteBufferPoolToWal(walPath string) string { // upisuje i pravi novi wal fajl
 	file, err := os.OpenFile(walPath, os.O_RDWR, 0644)
 	HandleError(err, "Failed to open WAL file")
 	defer file.Close()
@@ -126,3 +126,17 @@ func (bm *BlockManager) WriteBufferPoolToWal(walPath string) string {
 	return WalsPath + newWalFile
 }
 
+func (bm *BlockManager) SyncBufferPoolToWal(walPath string) {
+	file, err := os.OpenFile(walPath, os.O_RDWR, 0644)
+	HandleError(err, "Failed to open WAL file")
+	defer file.Close()
+
+	for e := bm.BufferPool.Pool.Front(); e != nil; e = e.Next() {
+		block := e.Value.(*BufferBlock)
+		_, err := file.WriteAt(block.Data, int64(block.BlockNumber*uint32(len(block.Data))))
+		HandleError(err, "Failed to write block to WAL file")
+	}
+
+	err = file.Sync()	// stable write
+	HandleError(err, "Failed to sync WAL file")
+}

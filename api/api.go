@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -14,7 +15,31 @@ const (
 	yellow = "\033[33m"
 	red    = "\033[31m"
 	bold   = "\033[1m"
+	orange = "\033[38;5;208m"
 )
+
+func clearTerminal() {
+	cmd := exec.Command("clear")
+	cmd.Stdout = os.Stdout
+	cmd.Run()
+}
+
+func message(returnValue uint32) {
+	switch returnValue {
+	case 0:
+		fmt.Print(bold + green + "[OK]" + reset)
+	case 1:
+		fmt.Print(bold + red + "[ERROR] Key cannot be empty!" + reset)
+	case 2:
+		fmt.Print(bold + red + "[ERROR] Value cannot be empty!" + reset)
+	case 3:
+		fmt.Print(bold + red + "[ERROR] Entry size exceeds WAL size!" + reset)
+	case 4:
+		fmt.Print(bold + red + "[ERROR] Unknown operation, please try again!" + reset)
+	default:
+		fmt.Print(bold + red + "[ERROR] Unknown error." + reset)
+	}
+}
 
 func StartCLI() {
 
@@ -23,42 +48,48 @@ func StartCLI() {
 
 	writePathObject := NewWritePath()
 	writePathObject.BlockManager.FillBufferPool(writePathObject.WalManager.Wal.Path)
-	for e := writePathObject.BlockManager.BufferPool.Pool.Front(); e != nil; e = e.Next() {
-		// printamo niz bajtova
-		fmt.Println(e.Value)
-	}
 
 	// ===============================================
 
 	reader := bufio.NewReader(os.Stdin)
+	returnValue := uint32(0)
 	for {
+		clearTerminal()
 		fmt.Println("\n" + bold + blue + "════════════════════════" + reset)
 		fmt.Println(bold + green + "\nChoose an option:" + reset)
 		fmt.Println("\n" + yellow + "1. PUT (key, value)" + reset)
 		fmt.Println(yellow + "2. GET (key)" + reset)
 		fmt.Println(yellow + "3. DELETE (key)" + reset)
-		fmt.Println(red + "4. EXIT" + reset)
+		fmt.Println(orange + "4. SETTINGS" + reset)
+		fmt.Println(red + "5. EXIT" + reset)
 		fmt.Print("\n" + bold + blue + "════════════════════════\n\n" + reset)
-		fmt.Print(bold + "➤ Enter your choice: " + reset)
+
+		fmt.Print("Status: ")
+		message(returnValue)
+		returnValue = 0
+
+		fmt.Print(bold + "\n\n➤ Enter your choice: " + reset)
 
 		choice, _ := reader.ReadString('\n')
 		switch choice {
 		case "1\n":
-			handlePut(writePathObject)
+			returnValue = handlePut(writePathObject)
 		case "2\n":
 			handleGet()
 		case "3\n":
 			handleDelete()
 		case "4\n":
+			settings()
+		case "5\n":
 			fmt.Println(bold + red + "\nExiting..." + reset)
 			return
 		default:
-			fmt.Println(bold + red + "\nUnknown operation, please try again." + reset)
+			returnValue = 4
 		}
 	}
 }
 
-func handlePut(wpo *WritePath) {
+func handlePut(wpo *WritePath) uint32 {
 	fmt.Print(bold + "\n➤ Enter key: " + reset)
 	reader := bufio.NewReader(os.Stdin)
 	key, _ := reader.ReadString('\n')
@@ -66,8 +97,7 @@ func handlePut(wpo *WritePath) {
 	key = strings.TrimSpace(key)
 
 	if key == "" {
-		fmt.Println(bold + red + "\nKey cannot be empty!" + reset)
-		return
+		return 1
 	}
 
 	fmt.Print(bold + "\n➤ Enter value: " + reset)
@@ -76,16 +106,10 @@ func handlePut(wpo *WritePath) {
 	value = strings.TrimSpace(value)
 
 	if value == "" {
-		fmt.Println(bold + red + "\nValue cannot be empty!" + reset)
-		return
+		return 2
 	}
 
-	wpo.WriteEntry(key, value)
-	// printamo kako izgleda buffer pool sada
-	for e := wpo.BlockManager.BufferPool.Pool.Front(); e != nil; e = e.Next() {
-		fmt.Println(e.Value)
-	}
-	
+	return wpo.WriteEntry(key, value)
 }
 
 func handleGet() {
@@ -94,4 +118,8 @@ func handleGet() {
 
 func handleDelete() {
 	fmt.Println(bold + yellow + "\nDELETE operation selected!" + reset)
+}
+
+func settings() {
+	fmt.Println(bold + orange + "\nSettings selected!" + reset)
 }

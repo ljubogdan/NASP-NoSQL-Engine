@@ -4,7 +4,6 @@ import (
 	"NASP-NoSQL-Engine/internal/block_manager"
 	"NASP-NoSQL-Engine/internal/entry"
 	"NASP-NoSQL-Engine/internal/wal"
-	"fmt"
 	"time"
 )
 
@@ -37,7 +36,7 @@ func NewWritePath() *WritePath {
 	}
 }
 
-func (wpo *WritePath) WriteEntry(key string, value string) {
+func (wpo *WritePath) WriteEntry(key string, value string) uint32 {
 
 	minimalRequiredSize := uint32(CRC_SIZE + TIMESTAMP_SIZE + TOMBSTONE_SIZE + TYPE_SIZE + KEY_SIZE_SIZE + VALUE_SIZE_SIZE)
 	keySize := uint32(len(key))
@@ -48,8 +47,7 @@ func (wpo *WritePath) WriteEntry(key string, value string) {
 	walSize := uint32(blockSize * blocksPerWal)
 
 	if keySize+valueSize > (walSize - (blocksPerWal * minimalRequiredSize)) {
-		fmt.Println("\n" + "\033[31m" + "Entry size exceeds WAL size!" + "\033[0m")
-		return
+		return 3
 	}
 
 	bufferPoolCopy := block_manager.NewBufferPool()
@@ -95,7 +93,6 @@ func (wpo *WritePath) WriteEntry(key string, value string) {
 	header = append(header, entry.Uint64ToBytes(uint64(keySize))...)
 	header = append(header, entry.Uint64ToBytes(uint64(valueSize))...)
 
-	fmt.Println(header)
 	compactValue := make([]byte, 0)
 	compactValue = append(compactValue, []byte(key)...)
 	compactValue = append(compactValue, []byte(value)...)
@@ -200,8 +197,7 @@ func (wpo *WritePath) WriteEntry(key string, value string) {
 					}
 				} else {
 					if e.Next() == nil {
-						fmt.Println("\n" + "\033[31m" + "Entry size exceeds WAL size!" + "\033[0m")
-						return
+						return 3
 					} else {
 						positionInBlock = 0
 						positionInBufferPool++
@@ -239,9 +235,6 @@ func (wpo *WritePath) WriteEntry(key string, value string) {
 				wpo.BlockManager.GetBlockFromBufferPool(typeArray[i][0]).Data[typeArray[i][1]] = 3
 			}
 		}
-
-		fmt.Println("\n" + "\033[32m" + "Entry successfully written to BUFFER POOL!" + "\033[0m")
-
 	} else {
 		for e := bufferPoolCopy.Pool.Front(); e != nil; e = e.Next() {
 			wpo.BlockManager.BufferPool.AddBlock(block_manager.NewBufferBlock(e.Value.(*block_manager.BufferBlock).FileName,
@@ -259,8 +252,9 @@ func (wpo *WritePath) WriteEntry(key string, value string) {
 				wpo.BlockManager.GetBlockFromBufferPool(typeArray[i][0]).Data[typeArray[i][1]] = 3
 			}
 		}
-
-		fmt.Println("\n" + "\033[32m" + "Entry successfully written to BUFFER POOL!" + "\033[0m")
 	}
 
+	// sinhronizacija buffer poola sa wal fajlom
+	wpo.BlockManager.SyncBufferPoolToWal(wpo.WalManager.Wal.Path)
+	return 0
 }
