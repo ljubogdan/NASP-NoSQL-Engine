@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	ConfigPath = "../data/config.json"
-	WalsPath   = "../data/wals/"
+	ConfigPath = "NASP-NoSQL-Engine/data/config.json"
+	WalsPath   = "NASP-NoSQL-Engine/data/wals/"
 )
 
 type BlockManager struct {
@@ -140,3 +140,9 @@ func (bm *BlockManager) SyncBufferPoolToWal(walPath string) {
 	err = file.Sync()	// stable write
 	HandleError(err, "Failed to sync WAL file")
 }
+
+
+
+
+
+

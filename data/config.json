@@ -1,50 +1,49 @@
 {
-    "SYSTEM": {
-      "page_size": {
-        "min": 512,
-        "max": 16384,
-        "default": 35
-      },
-      "pages_per_block": {
-        "min": 1,
-        "max": 100,
-        "default": 1
-      }
-    },
-    "ENTRY": {
-      "max_key_size": {
-        "max": 200
-      },
-      "max_value_size": {
-        "max": 200
-      }
-    },
-    "WAL": {
-      "low_watermark": 0,
-      "blocks_per_wal": 5
-    },
     "BUFFER_POOL": {
-      "capacity": 5
+        "capacity": 5
     },
     "CACHE_POOL": {
-      "capacity": 5
+        "capacity": 5
+    },
+    "ENTRY": {
+        "max_key_size": {
+            "max": 200
+        },
+        "max_value_size": {
+            "max": 200
+        }
     },
     "MEMTABLE": {
-      "number_of_tables": null,
-      "entries_per_table": null,
-      "which_structure": null
+        "entries_per_table": null,
+        "number_of_tables": null,
+        "which_structure": null
     },
     "SSTABLE": {
-      "SSTABLE_DATA": {
-        "entries_per_table": null
-      },
-      "SSTABLE_INDEX": {},
-      "SSTABLE_SUMMARY": {
-        "nth_block": null
-      },
-      "SSTABLE_FILTER": {
-        "entries_per_table": null
-      }
+        "SSTABLE_DATA": {
+            "entries_per_table": null
+        },
+        "SSTABLE_FILTER": {
+            "entries_per_table": null
+        },
+        "SSTABLE_INDEX": {},
+        "SSTABLE_SUMMARY": {
+            "nth_block": null
+        }
+    },
+    "SYSTEM": {
+        "page_size": {
+            "default": 35,
+            "max": 16384,
+            "min": 512
+        },
+        "pages_per_block": {
+            "default": 1,
+            "max": 100,
+            "min": 1
+        }
+    },
+    "WAL": {
+        "blocks_per_wal": 5,
+        "low_watermark": 7
     }
-  }
-  
+}

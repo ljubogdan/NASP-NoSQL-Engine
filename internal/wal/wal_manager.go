@@ -1,20 +1,20 @@
 package wal
 
 import (
-	"os"
-	"log"
-	"fmt"
 	"encoding/json"
+	"fmt"
+	"log"
+	"os"
 	"path/filepath"
 )
 
 const (
 	ConfigPath = "../data/config.json"
-	WalsPath = "../data/wals/"
+	WalsPath   = "../data/wals/"
 )
 
 type WalManager struct {
-	Wal *WAL
+	Wal          *WAL
 	LowWatermark uint32
 }
 
@@ -28,7 +28,7 @@ func NewWalManager() *WalManager {
 
 	wal := NewWal()
 	return &WalManager{
-		Wal: wal,
+		Wal:          wal,
 		LowWatermark: lwm,
 	}
 }
@@ -54,13 +54,20 @@ func (wm *WalManager) DeleteOldWals() { // pronalazi low_watermark unutar config
 	}
 }
 
+func (wm *WalManager) SetLowWatermark(lwm uint32) {
+	data, err := os.ReadFile(ConfigPath)
+	HandleError(err, "Failed to read config file")
 
- 
+	var config map[string]interface{}
+	json.Unmarshal(data, &config)
 
+	config["WAL"].(map[string]interface{})["low_watermark"] = lwm
 
+	prettyJSON, err := json.MarshalIndent(config, "", "    ")
+	HandleError(err, "Failed to marshal JSON")
 
+	err = os.WriteFile(ConfigPath, prettyJSON, 0644)
+	HandleError(err, "Failed to write to config file")
 
-
-
-
-
+	wm.LowWatermark = lwm
+}

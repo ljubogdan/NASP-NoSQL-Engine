@@ -6,6 +6,7 @@ import (
 	"os"
 )
 
+// buffer pool kapacitet bi trebalo uvek da bude sinhronizovan sa kapacitetom wal-a
 type BufferPool struct {
 	Capacity uint32
 	Pool     *list.List
