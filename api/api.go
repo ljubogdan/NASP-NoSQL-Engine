@@ -45,13 +45,15 @@ func StartCLI() {
 
 	// ovo je i dalje probna faza, ne sme ovako ostati
 	// ===============================================
-
 	writePathObject := NewWritePath()
 	writePathObject.BlockManager.FillBufferPool(writePathObject.WalManager.Wal.Path)
-	writePathObject.WalManager.SetLowWatermark(7)
+	//writePathObject.WalManager.SetLowWatermark(7)
+	entries := writePathObject.BlockManager.GetEntriesFromLastWal()
+	for _, entry := range entries {
+		fmt.Println(entry)
+	}
 
 	// ===============================================
-
 	reader := bufio.NewReader(os.Stdin)
 	returnValue := uint32(0)
 	for {
