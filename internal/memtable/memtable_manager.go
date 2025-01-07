@@ -1,0 +1,109 @@
+package memtable
+
+import (
+	"NASP-NoSQL-Engine/internal/entry"
+	"encoding/json"
+	"log"
+	"os"
+)
+
+const (
+	ConfigPath = ".../data/config.json"
+)
+
+type MemtableManager struct {
+	tables  []Memtable
+	current uint16
+}
+
+func HandleError(err error, msg string) {
+	if err != nil {
+		log.Printf("%s: %v", msg, err)
+		// panic(msg + ": " + err.Error())
+	}
+	// if r := recover(); r != nil {
+	// 	log.Print(r)
+	// }
+}
+
+func NewMemtableManager() *MemtableManager {
+	tableCount := uint16(1)
+	tableSize := uint16(5)
+
+	data, err := os.ReadFile(ConfigPath)
+	HandleError(err, "Failed to read config file")
+
+	var config map[string]interface{}
+	json.Unmarshal(data, &config)
+
+	memtableConfig, exists := config["MEMTABLE"]
+	if exists {
+		if count, exists := memtableConfig.(map[string]interface{})["number_of_tables"].(uint16); exists {
+			tableCount = count
+		}
+		if count, exists := memtableConfig.(map[string]interface{})["entries_per_table"].(uint16); exists {
+			tableSize = count
+		}
+	}
+
+	tables := make([]Memtable, tableCount)
+	for i := 0; i < int(tableCount); i++ {
+		tables[i] = *NewMemtable(tableSize)
+	}
+	return &MemtableManager{tables: tables, current: 0}
+}
+
+func (manager *MemtableManager) Next() *[]entry.Entry {
+	manager.current = (manager.current + 1) % uint16(len(manager.tables))
+	return manager.tables[(manager.current+1)%uint16(len(manager.tables))].Flush()
+}
+
+func (manager *MemtableManager) Insert(key string, value []byte) *[]entry.Entry {
+	tableCount := uint16(len(manager.tables))
+	_, exists := manager.tables[manager.current].Get(key)
+	if !exists {
+		for i := (manager.current - 1 + tableCount) % tableCount; i != manager.current; i = (i - 1 + tableCount) % tableCount {
+			_, exists = manager.tables[i].Get(key)
+			if exists {
+				manager.tables[i].Put(key, value)
+				temp := (make([]entry.Entry, 0))
+				return &temp
+			}
+		}
+	}
+
+	manager.tables[manager.current].Put(key, value)
+	if manager.tables[manager.current].Full() {
+		return manager.Next()
+	}
+	temp := (make([]entry.Entry, 0))
+	return &temp
+}
+
+func (manager *MemtableManager) Find(key string) (entry.Entry, bool) {
+	tableCount := uint16(len(manager.tables))
+	entry, exists := manager.tables[manager.current].Get(key)
+	for i := (manager.current - 1 + tableCount) % tableCount; i != manager.current; i = (i - 1 + tableCount) % tableCount {
+		if exists {
+			return entry, exists
+		}
+		entry, exists = manager.tables[i].Get(key)
+	}
+	return entry, exists
+}
+
+func (manager *MemtableManager) Delete(key string) {
+	tableCount := uint16(len(manager.tables))
+	_, exists := manager.tables[manager.current].Get(key)
+	if !exists {
+		for i := (manager.current - 1 + tableCount) % tableCount; i != manager.current; i = (i - 1 + tableCount) % tableCount {
+			_, exists = manager.tables[i].Get(key)
+			if exists {
+				manager.tables[i].Delete(key)
+				return
+			}
+		}
+	}
+	manager.tables[manager.current].Delete(key)
+
+}
