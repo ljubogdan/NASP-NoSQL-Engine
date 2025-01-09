@@ -1,6 +1,9 @@
 package api
 
 import (
+	"NASP-NoSQL-Engine/internal/block_manager"
+	"NASP-NoSQL-Engine/internal/memtable"
+	"NASP-NoSQL-Engine/internal/wal"
 	"bufio"
 	"fmt"
 	"os"
@@ -36,6 +39,8 @@ func message(returnValue uint32) {
 		fmt.Print(bold + red + "[ERROR] Entry size exceeds WAL size!" + reset)
 	case 4:
 		fmt.Print(bold + red + "[ERROR] Unknown operation, please try again!" + reset)
+	case 5:
+		fmt.Print(bold + orange + "[OK] Entry with given key doesnt exist!" + reset)
 	default:
 		fmt.Print(bold + red + "[ERROR] Unknown error." + reset)
 	}
@@ -45,11 +50,17 @@ func StartCLI() {
 
 	// ovo je i dalje probna faza, ne sme ovako ostati                  Bogdan
 	// ===============================================
-	writePathObject := NewWritePath()
+	blockManager := block_manager.NewBlockManager()
+	walManager := wal.NewWalManager()
+	memtableManager := memtable.NewMemtableManager()
+
+	writePathObject := NewWritePath(blockManager, walManager)
 	writePathObject.BlockManager.FillBufferPool(writePathObject.WalManager.Wal.Path)
+	readPathObject := NewReadPath(blockManager, memtableManager)
 	//writePathObject.WalManager.SetLowWatermark(7)
 	entries := writePathObject.BlockManager.GetEntriesFromLastWal()
 	for _, entry := range entries {
+		memtableManager.InsertFromWAL(&entry)
 		fmt.Println(entry)
 	}
 
@@ -78,7 +89,7 @@ func StartCLI() {
 		case "1\n":
 			returnValue = handlePut(writePathObject)
 		case "2\n":
-			handleGet()
+			returnValue = handleGet(readPathObject)
 		case "3\n":
 			handleDelete()
 		case "4\n":
@@ -118,8 +129,23 @@ func handlePut(wpo *WritePath) uint32 {
 
 }
 
-func handleGet() {
-	fmt.Println(bold + blue + "\nGET operation selected!" + reset)
+func handleGet(rpo *ReadPath) uint32 {
+	fmt.Print(bold + "\n➤ Enter key: " + reset)
+	reader := bufio.NewReader(os.Stdin)
+	key, _ := reader.ReadString('\n')
+
+	key = strings.TrimSpace(key)
+
+	if key == "" {
+		return 1
+	}
+
+	result, exists := rpo.ReadEntry(key)
+	fmt.Println(bold + "Result: " + string(result.Value) + reset)
+	if exists {
+		return 0
+	}
+	return 5
 }
 
 func handleDelete() {

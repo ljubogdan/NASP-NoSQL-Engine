@@ -29,10 +29,10 @@ type WritePath struct {
 	WalManager   *wal.WalManager
 }
 
-func NewWritePath() *WritePath {
+func NewWritePath(blockManager *block_manager.BlockManager, walManager *wal.WalManager) *WritePath {
 	return &WritePath{
-		BlockManager: block_manager.NewBlockManager(),
-		WalManager:   wal.NewWalManager(),
+		BlockManager: blockManager,
+		WalManager:   walManager,
 	}
 }
 

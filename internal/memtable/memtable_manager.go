@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	ConfigPath = ".../data/config.json"
+	ConfigPath = "../data/config.json"
 )
 
 type MemtableManager struct {
@@ -27,8 +27,8 @@ func HandleError(err error, msg string) {
 }
 
 func NewMemtableManager() *MemtableManager {
-	tableCount := uint16(1)
-	tableSize := uint16(5)
+	tableCount := uint16(5)
+	tableSize := uint16(10)
 
 	data, err := os.ReadFile(ConfigPath)
 	HandleError(err, "Failed to read config file")
@@ -80,11 +80,33 @@ func (manager *MemtableManager) Insert(key string, value []byte) *[]entry.Entry 
 	return &temp
 }
 
+func (manager *MemtableManager) InsertFromWAL(newEntry *entry.Entry) *[]entry.Entry {
+	tableCount := uint16(len(manager.tables))
+	_, exists := manager.tables[manager.current].Get(newEntry.Key)
+	if !exists {
+		for i := (manager.current - 1 + tableCount) % tableCount; i != manager.current; i = (i - 1 + tableCount) % tableCount {
+			_, exists = manager.tables[i].Get(newEntry.Key)
+			if exists {
+				manager.tables[i].PutFromWAL(newEntry)
+				temp := (make([]entry.Entry, 0))
+				return &temp
+			}
+		}
+	}
+
+	manager.tables[manager.current].PutFromWAL(newEntry)
+	if manager.tables[manager.current].Full() {
+		return manager.Next()
+	}
+	temp := (make([]entry.Entry, 0))
+	return &temp
+}
+
 func (manager *MemtableManager) Find(key string) (entry.Entry, bool) {
 	tableCount := uint16(len(manager.tables))
 	entry, exists := manager.tables[manager.current].Get(key)
 	for i := (manager.current - 1 + tableCount) % tableCount; i != manager.current; i = (i - 1 + tableCount) % tableCount {
-		if exists {
+		if exists || entry.Tombstone == byte(1) {
 			return entry, exists
 		}
 		entry, exists = manager.tables[i].Get(key)

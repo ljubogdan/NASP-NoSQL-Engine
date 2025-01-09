@@ -48,6 +48,10 @@ func (mt *Memtable) Put(key string, value []byte) {
 	mt.data.Insert(entry.Entry{Key: key, KeySize: uint64(len(key)), Value: value, ValueSize: uint64(len(value)), Tombstone: byte(0), Timestamp: uint64(time.Now().Unix())})
 }
 
+func (mt *Memtable) PutFromWAL(newEntry *entry.Entry) {
+	mt.data.Insert(*newEntry)
+}
+
 func (mt *Memtable) Get(key string) (entry.Entry, bool) {
 	value, exists := mt.data.Get(key)
 	if value.Tombstone == byte(1) {
