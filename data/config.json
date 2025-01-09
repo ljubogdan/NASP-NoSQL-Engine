@@ -31,15 +31,10 @@
         }
     },
     "SYSTEM": {
-        "page_size": {
+        "block_size": {
             "default": 35,
             "max": 16384,
             "min": 512
-        },
-        "pages_per_block": {
-            "default": 1,
-            "max": 100,
-            "min": 1
         }
     },
     "WAL": {

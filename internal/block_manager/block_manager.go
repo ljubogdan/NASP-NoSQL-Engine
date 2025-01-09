@@ -1,8 +1,8 @@
 package block_manager
 
 import (
-	"encoding/json"
 	"NASP-NoSQL-Engine/internal/entry"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -41,7 +41,7 @@ func (bm *BlockManager) FillBufferPool(walPath string) { // walFile je već krei
 
 	walFile := filepath.Base(walPath)
 
-	// pročitamo iz konfiguracije system -> page_size -> default i system -> pages_per_block -> default
+	// pročitamo iz konfiguracije system -> block_size i wal -> blocks_per_wal
 	// i pomnožimo ih da dobijemo veličinu bloka
 	// ======= UPOZORENE: ako je došlo do izmene u configu, moramo sve WAL-ove pre toga flushovati =======
 
@@ -51,11 +51,8 @@ func (bm *BlockManager) FillBufferPool(walPath string) { // walFile je već krei
 	var config map[string]interface{}
 	json.Unmarshal(data, &config)
 
-	pageSize := uint32(config["SYSTEM"].(map[string]interface{})["page_size"].(map[string]interface{})["default"].(float64))
-	pagesPerBlock := uint32(config["SYSTEM"].(map[string]interface{})["pages_per_block"].(map[string]interface{})["default"].(float64))
+	blockSize := uint32(config["SYSTEM"].(map[string]interface{})["block_size"].(map[string]interface{})["default"].(float64))
 	blocksPerWal := uint32(config["WAL"].(map[string]interface{})["blocks_per_wal"].(float64))
-
-	blockSize := pageSize * pagesPerBlock
 
 	file, err := os.Open(walPath)
 	HandleError(err, "Failed to open WAL file")
@@ -142,9 +139,6 @@ func (bm *BlockManager) SyncBufferPoolToWal(walPath string) {
 	HandleError(err, "Failed to sync WAL file")
 }
 
-
-
-
 // metoda koja će na startu sistema vratiti entrije iz zadnjeg wala (listu)
 func (bm *BlockManager) GetEntriesFromLastWal() []entry.Entry {
 	// napomena: neophodno je nakon promene broja blokova po walu flushovati sve walove
@@ -156,10 +150,7 @@ func (bm *BlockManager) GetEntriesFromLastWal() []entry.Entry {
 	HandleError(err, "Failed to read config file")
 	var config map[string]interface{}
 	json.Unmarshal(data, &config)
-	pageSize := uint32(config["SYSTEM"].(map[string]interface{})["page_size"].(map[string]interface{})["default"].(float64))
-	pagesPerBlock := uint32(config["SYSTEM"].(map[string]interface{})["pages_per_block"].(map[string]interface{})["default"].(float64))
-
-	blockSize := pageSize * pagesPerBlock
+	blockSize := uint32(config["SYSTEM"].(map[string]interface{})["block_size"].(map[string]interface{})["default"].(float64))
 
 	file, err := os.Open(walPath)
 	HandleError(err, "Failed to open WAL file")
@@ -191,12 +182,12 @@ func (bm *BlockManager) GetEntriesFromLastWal() []entry.Entry {
 
 			var entrySize uint32
 
-			keySize := entry.BytesToUint64(walData[i*blockSize+positionInBlock+entry.KEY_SIZE_START : i*blockSize + positionInBlock + entry.VALUE_SIZE_START])
-			valueSize := entry.BytesToUint64(walData[i*blockSize+positionInBlock+entry.VALUE_SIZE_START : i*blockSize + positionInBlock + entry.KEY_START])
+			keySize := entry.BytesToUint64(walData[i*blockSize+positionInBlock+entry.KEY_SIZE_START : i*blockSize+positionInBlock+entry.VALUE_SIZE_START])
+			valueSize := entry.BytesToUint64(walData[i*blockSize+positionInBlock+entry.VALUE_SIZE_START : i*blockSize+positionInBlock+entry.KEY_START])
 			typeByte := walData[i*blockSize+positionInBlock+entry.TYPE_START]
 
 			entrySize = uint32(entry.CRC_SIZE + entry.TIMESTAMP_SIZE + entry.TOMBSTONE_SIZE + entry.TYPE_SIZE + entry.KEY_SIZE_SIZE + entry.VALUE_SIZE_SIZE + keySize + valueSize)
-			
+
 			// ako je veličina entrija veća od preostalog dela bloka, grabi samo koliko možeš do kraja bloka
 			if positionInBlock+entrySize > blockSize {
 				entrySize = blockSize - positionInBlock
@@ -222,7 +213,6 @@ func (bm *BlockManager) GetEntriesFromLastWal() []entry.Entry {
 
 	return entries
 }
-
 
 // metoda koja će složiti entry na osnovu niza parcijalnih entrija, prima listu nizova bajtova
 func ConstructEntryFromPartialEntries(partialEntries [][]byte) entry.Entry {

@@ -43,7 +43,7 @@ func message(returnValue uint32) {
 
 func StartCLI() {
 
-	// ovo je i dalje probna faza, ne sme ovako ostati
+	// ovo je i dalje probna faza, ne sme ovako ostati                  Bogdan
 	// ===============================================
 	writePathObject := NewWritePath()
 	writePathObject.BlockManager.FillBufferPool(writePathObject.WalManager.Wal.Path)
@@ -57,7 +57,7 @@ func StartCLI() {
 	reader := bufio.NewReader(os.Stdin)
 	returnValue := uint32(0)
 	for {
-		//clearTerminal()
+		//clearTerminal()                    Bogdan
 		fmt.Println("\n" + bold + blue + "════════════════════════" + reset)
 		fmt.Println(bold + green + "\nChoose an option:" + reset)
 		fmt.Println("\n" + yellow + "1. PUT (key, value)" + reset)
@@ -113,6 +113,9 @@ func handlePut(wpo *WritePath) uint32 {
 	}
 
 	return wpo.WriteEntry(key, value)
+
+	// nastavak posla ovde...        Bogdan
+
 }
 
 func handleGet() {
