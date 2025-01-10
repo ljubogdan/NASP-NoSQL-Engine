@@ -3,6 +3,7 @@ package api
 import (
 	"NASP-NoSQL-Engine/internal/block_manager"
 	"NASP-NoSQL-Engine/internal/entry"
+	"NASP-NoSQL-Engine/internal/memtable"
 	"NASP-NoSQL-Engine/internal/wal"
 	"time"
 )
@@ -25,14 +26,16 @@ const ( // kopija podataka iz entry.go
 )
 
 type WritePath struct {
-	BlockManager *block_manager.BlockManager
-	WalManager   *wal.WalManager
+	BlockManager    *block_manager.BlockManager
+	WalManager      *wal.WalManager
+	MemtableManager *memtable.MemtableManager
 }
 
-func NewWritePath(blockManager *block_manager.BlockManager, walManager *wal.WalManager) *WritePath {
+func NewWritePath(blockManager *block_manager.BlockManager, walManager *wal.WalManager, memtableManager *memtable.MemtableManager) *WritePath {
 	return &WritePath{
-		BlockManager: blockManager,
-		WalManager:   walManager,
+		BlockManager:    blockManager,
+		WalManager:      walManager,
+		MemtableManager: memtableManager,
 	}
 }
 
@@ -256,5 +259,6 @@ func (wpo *WritePath) WriteEntry(key string, value string) uint32 {
 
 	// sinhronizacija buffer poola sa wal fajlom
 	wpo.BlockManager.SyncBufferPoolToWal(wpo.WalManager.Wal.Path)
+	wpo.MemtableManager.Insert(key, []byte(value)) // Povratna vrednost ove funkcije su flush-ovani zapisi, [] ako nije bio flush
 	return 0
 }

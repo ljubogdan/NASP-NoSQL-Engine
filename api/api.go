@@ -54,7 +54,7 @@ func StartCLI() {
 	walManager := wal.NewWalManager()
 	memtableManager := memtable.NewMemtableManager()
 
-	writePathObject := NewWritePath(blockManager, walManager)
+	writePathObject := NewWritePath(blockManager, walManager, memtableManager)
 	writePathObject.BlockManager.FillBufferPool(writePathObject.WalManager.Wal.Path)
 	readPathObject := NewReadPath(blockManager, memtableManager)
 	//writePathObject.WalManager.SetLowWatermark(7)
@@ -141,7 +141,7 @@ func handleGet(rpo *ReadPath) uint32 {
 	}
 
 	result, exists := rpo.ReadEntry(key)
-	fmt.Println(bold + "Result: " + string(result.Value) + reset)
+	fmt.Println(bold + "\n➤ Result: " + string(result.Value) + reset)
 	if exists {
 		return 0
 	}

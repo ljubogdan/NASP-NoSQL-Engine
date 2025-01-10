@@ -1,7 +1,6 @@
 package trees
 
 import (
-	"NASP-NoSQL-Engine/internal/block_manager"
 	"crypto/sha256"
 	"sync"
 )
@@ -11,7 +10,11 @@ type MerkleTree struct {
 	levelIndexes []uint16
 }
 
-func NewMerkleTree(data *[]block_manager.BufferBlock) *MerkleTree {
+func NewMerkleTree() *MerkleTree {
+	return &MerkleTree{hashes: make([]byte, 0), levelIndexes: make([]uint16, 0)}
+}
+
+func NewMerkleTreeFromData(data *[][]byte) *MerkleTree {
 	blockCount := len(*data)
 	hashCount := blockCount
 	height := 0
@@ -29,7 +32,7 @@ func NewMerkleTree(data *[]block_manager.BufferBlock) *MerkleTree {
 	var wg sync.WaitGroup
 	for i := 0; i < blockCount; i++ {
 		wg.Add(1)
-		merkle.writeHashAsync(&(*data)[i].Data, hashCount-blockCount+i, 0x01, &wg)
+		merkle.writeHashAsync(&(*data)[i], hashCount-blockCount+i, 0x01, &wg)
 	}
 	wg.Wait()
 
@@ -37,6 +40,19 @@ func NewMerkleTree(data *[]block_manager.BufferBlock) *MerkleTree {
 	return merkle
 }
 
+func (merkle *MerkleTree) AddBlock(block *[]byte) {
+	index := len(merkle.hashes) / 32
+	merkle.hashes = append(merkle.hashes, make([]byte, 32)...)
+	merkle.writeHash(block, index, 0x01)
+}
+
+func (merkle *MerkleTree) writeHash(data *[]byte, index int, separator byte) {
+	dataWithSeparator := append([]byte{separator}, (*data)[:]...) // Dodaj separator na kraj pre hash-ovanja zbog razdvajanja nivoa
+	blockHash := sha256.Sum256(dataWithSeparator)
+	for i := 0; i < 32; i++ {
+		merkle.hashes[index*32+i] = blockHash[i] // Verovatno postoji efikasniji način da se prepišu svi byte-ovi hash-a
+	}
+}
 
 func (merkle *MerkleTree) writeHashAsync(data *[]byte, index int, separator byte, wg *sync.WaitGroup) {
 	defer wg.Done()
@@ -73,6 +89,25 @@ func (merkle *MerkleTree) generateTree(levelEnd int, blockCount int, height int)
 		}
 		wg.Wait()
 	}
+}
+
+func (merkle *MerkleTree) Build() {
+	blockCount := len(merkle.hashes) / 32
+	hashCount := blockCount
+	height := 0
+	for bpl := blockCount; bpl > 0; bpl /= 2 {
+		height++
+		bpl++
+		if bpl == 2 {
+			break
+		}
+		hashCount += bpl / 2
+	}
+
+	merkle.hashes = append(make([]byte, (hashCount-blockCount)*32), merkle.hashes...)
+	merkle.levelIndexes = make([]uint16, height)
+
+	merkle.generateTree(hashCount, blockCount, height)
 }
 
 func (merkle *MerkleTree) compareHash(other *MerkleTree, index uint16) bool {
@@ -128,4 +163,4 @@ func Deserialize_MT(data *[]byte) *MerkleTree {
 
 	merkle.generateTree(hashCount, blockCount, height)
 	return merkle
-} 
+}
