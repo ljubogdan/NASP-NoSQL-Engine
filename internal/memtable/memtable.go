@@ -40,8 +40,14 @@ type Memtable struct {
 	max  uint16
 }
 
-func NewMemtable(size uint16) *Memtable {
-	return &Memtable{data: &MapWrapper{data: make(map[string]entry.Entry)}, max: size}
+func NewMemtable(size uint16, structure string) *Memtable {
+	if structure == "map" {
+		return &Memtable{data: &MapWrapper{data: make(map[string]entry.Entry)}, max: size}
+	} else if structure == "list" {
+		return &Memtable{data: &MapWrapper{data: make(map[string]entry.Entry)}, max: size}
+	} else {
+		return &Memtable{data: &MapWrapper{data: make(map[string]entry.Entry)}, max: size}
+	}
 }
 
 func (mt *Memtable) Put(key string, value []byte) {
@@ -64,6 +70,8 @@ func (mt *Memtable) Delete(key string) {
 	value, exists := mt.data.Get(key)
 	if exists {
 		value.Tombstone = byte(1)
+		value.ValueSize = 0
+		value.Value = make([]byte, 0)
 		mt.data.Insert(value)
 	} else {
 		mt.data.Insert(entry.Entry{Key: key, KeySize: uint64(len(key)), Value: make([]byte, 0), ValueSize: 0, Tombstone: byte(1), Timestamp: uint64(time.Now().Unix())})
