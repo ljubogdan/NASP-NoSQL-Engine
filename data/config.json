@@ -16,25 +16,25 @@
     "MEMTABLE": {
         "entries_per_table": null,
         "number_of_tables": null,
-        "which_structure": null
+        "structure": null
     },
     "SSTABLE": {
         "SSTABLE_DATA": {
             "entries_per_table": null
         },
-        "SSTABLE_FILTER": {
-            "entries_per_table": null
-        },
-        "SSTABLE_INDEX": {},
         "SSTABLE_SUMMARY": {
-            "nth_block": null
+            "thinning": null    
+        }, 
+        "COMPRESSION" : {
+            "active" : false
         }
     },
     "SYSTEM": {
         "block_size": {
             "default": 35,
-            "max": 16384,
-            "min": 512
+            "size_1": 4096,
+            "size_2": 8192,
+            "size_3": 16384
         }
     },
     "WAL": {

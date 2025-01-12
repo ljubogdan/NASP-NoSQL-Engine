@@ -4,6 +4,9 @@ import (
 	"os"
 	"testing"
 	"strconv"
+	"fmt"
+	"NASP-NoSQL-Engine/internal/entry"
+	"reflect"
 )
 
 // go test -v ./internal/probabilistics -run TestBloomFilter
@@ -130,12 +133,12 @@ func TestSkipList(t *testing.T) {
 	// Umetanje elemenata
 	elements := []string{"apple", "banana", "cherry", "date", "elderberry", "fig", "grape", "honeydew", "kiwi", "lemon"}
 	for _, elem := range elements {
-		skiplist.Insert(elem)
+		skiplist.Insert(entry.Entry{Key: elem, Value: nil})
 	}
 
 	// Testiranje pretrage umetnutih elemenata
 	for _, elem := range elements {
-		if !skiplist.Search(elem) {
+		if !skiplist.Search(entry.Entry{Key: elem, Value: nil}) {
 			t.Errorf("SkipList should contain '%s'", elem)
 		}
 	}
@@ -143,7 +146,7 @@ func TestSkipList(t *testing.T) {
 	// Testiranje pretrage za elemente koji nisu umetnuti
 	nonElements := []string{"mango", "nectarine", "orange", "papaya", "quince"}
 	for _, elem := range nonElements {
-		if skiplist.Search(elem) {
+		if skiplist.Search(entry.Entry{Key: elem, Value: nil}) {
 			t.Errorf("SkipList should not contain '%s'", elem)
 		}
 	}
@@ -151,21 +154,46 @@ func TestSkipList(t *testing.T) {
 	// Testiranje umetanja i pretrage dodatnih elemenata
 	additionalElements := []string{"raspberry", "strawberry", "tangerine", "ugli", "vanilla"}
 	for _, elem := range additionalElements {
-		skiplist.Insert(elem)
-		if !skiplist.Search(elem) {
+		skiplist.Insert(entry.Entry{Key: elem, Value: nil})
+		if !skiplist.Search(entry.Entry{Key: elem, Value: nil}) {
 			t.Errorf("SkipList should contain '%s'", elem)
 		}
 	}
 
 	// Testiranje umetanja duplikata
 	for _, elem := range elements {
-		skiplist.Insert(elem)
-		if !skiplist.Search(elem) {
+		skiplist.Insert(entry.Entry{Key: elem, Value: nil})
+		if !skiplist.Search(entry.Entry{Key: elem, Value: nil}) {
 			t.Errorf("SkipList should contain '%s' even after inserting duplicate", elem)
 		}
 	}
 
 	skiplist.PrintLevels()
+
+	// ispisuje type koje je vrste jedan node value
+	fmt.Println(reflect.TypeOf(skiplist.head.value))
+
+	// testiranja Get po string ključu
+	for _, elem := range elements {
+		entry, found := skiplist.Get(elem)
+		fmt.Println(entry, found)
+	}
+
+	entry, found := skiplist.Get("bonanzaaa")
+	fmt.Println(entry.Key, found)
+
+	// testiranje GetAll
+
+	entries := skiplist.GetAll()
+
+	for _, entry := range entries {
+		fmt.Println(entry)
+	}
+
+
+	// testiranje Size
+	fmt.Println(skiplist.Size())
+
 }
 
 func TestHyperLogLog(t *testing.T) {
