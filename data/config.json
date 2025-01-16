@@ -1,33 +1,32 @@
 {
+    "BLOOM_FILTER": {
+        "expected_elements" : 3,
+        "false_positive_rate" : 0.05
+    },
     "BUFFER_POOL": {
         "capacity": 5
     },
     "CACHE_POOL": {
-        "capacity": 5
+        "capacity": 15
     },
     "ENTRY": {
-        "max_key_size": {
-            "max": 200
-        },
-        "max_value_size": {
-            "max": 200
-        }
+        "max_key_size": 200,
+        "max_value_size": 200
     },
     "MEMTABLE": {
-        "entries_per_table": null,
-        "number_of_tables": null,
+        "entries_per_table": 3,
+        "number_of_tables": 2,
         "structure": null
     },
     "SSTABLE": {
-        "SSTABLE_DATA": {
-            "entries_per_table": null
+        "SSTABLE_MANAGER": {
+            "capacity": 5
         },
         "SSTABLE_SUMMARY": {
-            "thinning": null    
+            "thinning": 5
         }, 
-        "COMPRESSION" : {
-            "active" : false
-        }
+        "COMPACTION" : false,
+        "MERGE" : false
     },
     "SYSTEM": {
         "block_size": {

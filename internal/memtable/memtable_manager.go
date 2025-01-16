@@ -38,11 +38,11 @@ func NewMemtableManager() *MemtableManager {
 
 	memtableConfig, exists := config["MEMTABLE"]
 	if exists {
-		if count, exists := memtableConfig.(map[string]interface{})["number_of_tables"].(uint16); exists {
-			tableCount = count
+		if count, exists := memtableConfig.(map[string]interface{})["number_of_tables"].(float64); exists {
+			tableCount = uint16(count)
 		}
-		if count, exists := memtableConfig.(map[string]interface{})["entries_per_table"].(uint16); exists {
-			tableSize = count
+		if count, exists := memtableConfig.(map[string]interface{})["entries_per_table"].(float64); exists {
+			tableSize = uint16(count)
 		}
 	}
 

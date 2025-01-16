@@ -35,12 +35,12 @@ func GenerateHashFunctions(number uint32) []HashWithSeed {
 }
 
 // M ---> opt. veličina niza, falsePositive ---> izmedju 0 i 1 (0 - 100%)
-func CalculateM_BF(expectedElements int, falsePositiveRate float64) uint {
+func CalculateM_BF(expectedElements uint32, falsePositiveRate float64) uint {
 	return uint(math.Ceil(float64(expectedElements) * math.Abs(math.Log(falsePositiveRate)) / math.Pow(math.Log(2), float64(2))))
 }
 
 // m ---> veličina bitnog niza, K ---> optimalan broj hash funkcija
-func CalculateK_BF(expectedElements int, m uint) uint {	
+func CalculateK_BF(expectedElements uint32, m uint) uint {	
 	return uint(math.Ceil((float64(m) / float64(expectedElements)) * math.Log(2)))
 }
 
@@ -50,7 +50,7 @@ type BloomFilter struct {
 	hashFunctions []HashWithSeed
 }
 
-func NewBloomFilter(expectedElements int, falsePositiveRate float64) *BloomFilter {
+func NewBloomFilter(expectedElements uint32, falsePositiveRate float64) *BloomFilter {
 	m := CalculateM_BF(expectedElements, falsePositiveRate)
 	k := CalculateK_BF(expectedElements, m)
 	bitArray := make([]bool, m)

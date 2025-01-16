@@ -3,6 +3,7 @@ package api
 import (
 	"NASP-NoSQL-Engine/internal/block_manager"
 	"NASP-NoSQL-Engine/internal/memtable"
+	"NASP-NoSQL-Engine/internal/sstable"
 	"NASP-NoSQL-Engine/internal/wal"
 	"bufio"
 	"fmt"
@@ -53,6 +54,11 @@ func StartCLI() {
 	blockManager := block_manager.NewBlockManager()
 	walManager := wal.NewWalManager()
 	memtableManager := memtable.NewMemtableManager()
+	//sstableManager := sstable.NewSSTableManager()
+
+	sstable := sstable.NewEmptySSTable()
+	fmt.Println(sstable)
+
 
 	writePathObject := NewWritePath(blockManager, walManager, memtableManager)
 	writePathObject.BlockManager.FillBufferPool(writePathObject.WalManager.Wal.Path)
@@ -123,10 +129,19 @@ func handlePut(wpo *WritePath) uint32 {
 		return 2
 	}
 
-	return wpo.WriteEntry(key, value)
+	returnValue := wpo.WriteEntryToWal(key, value) // upisuje u wal
+	if returnValue == 0 {
+		entries := wpo.MemtableManager.Insert(key, []byte(value)) // upisuje u memtable
 
-	// nastavak posla ovde...        Bogdan
+		// ako su entries prazni, nema ništa za upisati u sstable
+		if len(*entries) > 0 {
+			// upisuje u sstable
+			returnValue = wpo.WriteEntriesToSSTable(entries)
+			return returnValue
+		}
+	}
 
+	return returnValue
 }
 
 func handleGet(rpo *ReadPath) uint32 {

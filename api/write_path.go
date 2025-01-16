@@ -39,7 +39,7 @@ func NewWritePath(blockManager *block_manager.BlockManager, walManager *wal.WalM
 	}
 }
 
-func (wpo *WritePath) WriteEntry(key string, value string) uint32 {
+func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 
 	minimalRequiredSize := uint32(CRC_SIZE + TIMESTAMP_SIZE + TOMBSTONE_SIZE + TYPE_SIZE + KEY_SIZE_SIZE + VALUE_SIZE_SIZE)
 	keySize := uint32(len(key))
@@ -257,8 +257,12 @@ func (wpo *WritePath) WriteEntry(key string, value string) uint32 {
 		}
 	}
 
-	// sinhronizacija buffer poola sa wal fajlom
+	// sinhronizacija buffer poola sa wal fajlom						
 	wpo.BlockManager.SyncBufferPoolToWal(wpo.WalManager.Wal.Path)
-	wpo.MemtableManager.Insert(key, []byte(value)) // Povratna vrednost ove funkcije su flush-ovani zapisi, [] ako nije bio flush
 	return 0
+}
+
+
+func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
+	return 10000000
 }

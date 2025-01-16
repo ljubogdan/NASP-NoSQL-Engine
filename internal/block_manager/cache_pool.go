@@ -7,8 +7,8 @@ import (
 )
 
 type CachePool struct {
-	Capacity uint32;
-	Pool *list.List;
+	Capacity uint32
+	Pool     *list.List
 }
 
 func NewCachePool() *CachePool {
@@ -19,10 +19,10 @@ func NewCachePool() *CachePool {
 	json.Unmarshal(data, &config)
 
 	capacity := uint32(config["CACHE_POOL"].(map[string]interface{})["capacity"].(float64))
-	
+
 	return &CachePool{
 		Capacity: capacity,
-		Pool: list.New(),
+		Pool:     list.New(),
 	}
 }
 
@@ -33,4 +33,3 @@ func (cp *CachePool) AddBlock(cb *CacheBlock) {
 
 	cp.Pool.PushBack(cb)
 }
-
