@@ -80,5 +80,12 @@ func (mt *Memtable) Flush() *[]entry.Entry {
 		return entries[i].Key < entries[j].Key
 	})
 	mt.data = &MapWrapper{data: make(map[string]entry.Entry)}
+
+	// računamo za svaki entry CRC32
+	for i := 0; i < len(entries); i++ {
+		ent := &entries[i]
+		ent.CRC = uint32(entry.CRC32(append([]byte(ent.Key), ent.Value...)))
+	}
+
 	return &entries
 }

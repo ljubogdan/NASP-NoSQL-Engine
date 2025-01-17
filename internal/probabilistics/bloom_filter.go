@@ -60,16 +60,16 @@ func NewBloomFilter(expectedElements uint32, falsePositiveRate float64) *BloomFi
 }
 
 
-func (bf *BloomFilter) Add(data string) {
+func (bf *BloomFilter) Add(data []byte) {                  // izmenjeno tako da radi sa nizm bajtova 
 	for _, hashFunction := range bf.hashFunctions {
-		index := hashFunction.Hash([]byte(data)) % uint64(len(bf.bitArray))
+		index := hashFunction.Hash(data) % uint64(len(bf.bitArray))
 		bf.bitArray[index] = true
 	}
 }
 
-func (bf *BloomFilter) Contains(data string) bool {
+func (bf *BloomFilter) Contains(data []byte) bool {                  // izmenjeno tako da radi sa nizom bajtova
 	for _, hashFunction := range bf.hashFunctions {
-		index := hashFunction.Hash([]byte(data)) % uint64(len(bf.bitArray))
+		index := hashFunction.Hash(data) % uint64(len(bf.bitArray))
 		if !bf.bitArray[index] {
 			return false
 		}

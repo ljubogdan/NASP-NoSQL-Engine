@@ -13,27 +13,27 @@ import (
 
 func TestBloomFilter(t *testing.T) {
 	bf := NewBloomFilter(100, 0.01)
-	bf.Add("hello")
-	bf.Add("world")
-	bf.Add("!")
+	bf.Add([]byte("hello"))
+	bf.Add([]byte("world"))
+	bf.Add([]byte("!"))
 
-	if !bf.Contains("hello") {
+	if !bf.Contains([]byte("hello")) {
 		t.Errorf("Bloom filter doesn't contain 'hello'")
 	}
 
-	if !bf.Contains("world") {
+	if !bf.Contains([]byte("world")) {
 		t.Errorf("Bloom filter doesn't contain 'world'")
 	}
 
-	if !bf.Contains("!") {
+	if !bf.Contains([]byte("!")) {
 		t.Errorf("Bloom filter doesn't contain '!'")
 	}
 
-	if bf.Contains("foo") {
+	if bf.Contains([]byte("foo")) {
 		t.Errorf("Bloom filter contains 'foo'")
 	}
 
-	if bf.Contains("bar") {
+	if bf.Contains([]byte("bar")) {
 		t.Errorf("Bloom filter contains 'bar'")
 	}
 
@@ -48,23 +48,23 @@ func TestBloomFilter(t *testing.T) {
 		t.Fatalf("failed to deserialize Bloom filter: %v", err)
 	}
 
-	if !deserializedBF.Contains("hello") {
+	if !deserializedBF.Contains([]byte("hello")) {
 		t.Errorf("Deserialized Bloom filter doesn't contain 'hello'")
 	}
 
-	if !deserializedBF.Contains("world") {
+	if !deserializedBF.Contains([]byte("world")) {
 		t.Errorf("Deserialized Bloom filter doesn't contain 'world'")
 	}
 
-	if !deserializedBF.Contains("!") {
+	if !deserializedBF.Contains([]byte("!")) {
 		t.Errorf("Deserialized Bloom filter doesn't contain '!'")
 	}
 
-	if deserializedBF.Contains("foo") {
+	if deserializedBF.Contains([]byte("foo")) {
 		t.Errorf("Deserialized Bloom filter contains 'foo'")
 	}
 
-	if deserializedBF.Contains("bar") {
+	if deserializedBF.Contains([]byte("bar")) {
 		t.Errorf("Deserialized Bloom filter contains 'bar'")
 	}
 }

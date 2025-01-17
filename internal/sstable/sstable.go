@@ -3,8 +3,8 @@ package sstable
 import (
 	"NASP-NoSQL-Engine/internal/probabilistics"
 	"NASP-NoSQL-Engine/internal/trees"
-	"encoding/json"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -29,6 +29,9 @@ type SSTable struct {
 
 	bloomfilter *probabilistics.BloomFilter
 	metadata    *trees.MerkleTree
+
+	BlockSize uint32        // bitno samo prilikom kreiranja sstable-a, kasnije ove podatke čitamo iz fajla
+	Merge bool
 }
 
 // funkcija koja kreira novi prazan sstable i vraća pokazivač na njega
@@ -122,6 +125,9 @@ func NewEmptySSTable() *SSTable {
 
 				bloomfilter: probabilistics.NewBloomFilter(expectedElements, falsePositiveRate),
 				metadata:    trees.NewMerkleTree(),
+
+				BlockSize: blockSize,
+				Merge: true,
 			}
 		} else {
 
@@ -180,6 +186,9 @@ func NewEmptySSTable() *SSTable {
 
 				bloomfilter: probabilistics.NewBloomFilter(expectedElements, falsePositiveRate),
 				metadata:    trees.NewMerkleTree(),
+
+				BlockSize: blockSize,
+				Merge: false,
 			}
 		}
 	}
@@ -215,4 +224,16 @@ func CreateStandardFiles(sstableName string) {
 	HandleError(err, "Failed to create merge file")
 	_, err = os.Create(SSTablesPath + sstableName + "/toc")
 	HandleError(err, "Failed to create toc file")
+}
+
+// funkcija koja čita block size iz fajla na osnovu putanje
+func ReadBlockSizeFromFile(path string) uint32 {
+	file, err := os.OpenFile(path, os.O_RDONLY, 0644)
+	HandleError(err, "Failed to open block size file")
+
+	var blockSize uint32
+	err = binary.Read(file, binary.BigEndian, &blockSize)
+	HandleError(err, "Failed to read block size from file")
+
+	return blockSize
 }

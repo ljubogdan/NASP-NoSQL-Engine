@@ -4,9 +4,18 @@ import (
 	"NASP-NoSQL-Engine/internal/block_manager"
 	"NASP-NoSQL-Engine/internal/entry"
 	"NASP-NoSQL-Engine/internal/memtable"
+	"NASP-NoSQL-Engine/internal/sstable"
 	"NASP-NoSQL-Engine/internal/wal"
+	"fmt"
+	"log"
 	"time"
 )
+
+func HandleError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %v", msg, err)
+	}
+}
 
 const ( // kopija podataka iz entry.go
 	CRC_SIZE        = 4
@@ -257,12 +266,120 @@ func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 		}
 	}
 
-	// sinhronizacija buffer poola sa wal fajlom						
+	// sinhronizacija buffer poola sa wal fajlom
 	wpo.BlockManager.SyncBufferPoolToWal(wpo.WalManager.Wal.Path)
 	return 0
 }
 
-
 func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
-	return 10000000
+	// potrebno je za početak entrije obraditi
+	// koristimo varijabilni enkodejer za enkodovanje entrija tj njegovih numeričkih vrednosti
+
+	compactEntries := make([]byte, 0)
+	offsets := make([]uint32, 0) // trebaće nam kasnije za indexe
+
+	for _, e := range *entries {
+		value, size := encodeEntry(&e)
+		compactEntries = append(compactEntries, value...)
+		offsets = append(offsets, size)
+	}
+
+	fmt.Println(compactEntries)
+
+	sst := sstable.NewEmptySSTable() // sada biramo koji režim upisivanja u sstabelu radimo, merge ili standard
+
+	merge := sst.Merge
+
+	if merge {
+		// logika koja se radi kasnije
+	} else {
+		index := createIndex(entries, offsets, sst.BlockSize)
+		fmt.Println("Index ", index)
+		fmt.Println("Offsets ", offsets)
+		fmt.Println("Entries ", entries)
+	}
+
+	return 0
+}
+
+// funkcija koja enkodira entry u niz bajtova
+func encodeEntry(e *entry.Entry) ([]byte, uint32) { // koristi se za sstable
+	encodedEntry := make([]byte, 0)
+
+	encodedEntry = append(encodedEntry, sstable.Uint32toVarint(e.CRC)...)
+	encodedEntry = append(encodedEntry, sstable.Uint64toVarint(e.Timestamp)...)
+	encodedEntry = append(encodedEntry, e.Tombstone)
+	encodedEntry = append(encodedEntry, e.Type)
+	encodedEntry = append(encodedEntry, sstable.Uint64toVarint(e.KeySize)...)
+
+	// ako je tombsotne == 1, onda nema potrebe za upisivanjem vrednosti i veličine vrednosti
+	if e.Tombstone == byte(0) {
+		encodedEntry = append(encodedEntry, sstable.Uint64toVarint(e.ValueSize)...)
+		encodedEntry = append(encodedEntry, []byte(e.Key)...)
+		encodedEntry = append(encodedEntry, e.Value...)
+	} else {
+		encodedEntry = append(encodedEntry, []byte(e.Key)...)
+	}
+
+	return encodedEntry, uint32(len(encodedEntry))
+}
+
+// funkcija koja kreira Index na osnovu bajtova entrija i blocksize-a
+func createIndex(entries *[]entry.Entry, offsets []uint32, blockSize uint32) []byte {
+	// dakle ideja je napraviti index koji će imati key + zerobyte + offset + newline redove
+	// offset je broj bajtova od početka data za taj entry
+	// ubacujemo samo ključeve koji se pojavljuju prvi za svaki blok, ne mora biti nužno pozicija 0 u bloku
+
+	fmt.Println("Offsets ", offsets)
+	for i := 1; i < len(offsets); i++ { // potrebno je korigovati offsete
+		offsets[i] += offsets[i-1]
+	}
+
+	fmt.Println("Offsets ", offsets)
+	// svaki pomeramo za jedan desno, na prvo mesto ide nula a zadnji element se briše
+	for i := len(offsets) - 1; i > 0; i-- {
+		offsets[i] = offsets[i-1]
+	}
+	fmt.Println("Offsets ", offsets)
+
+	offsets[0] = 0
+	fmt.Println("Offsets ", offsets)
+
+	index := make([]byte, 0)
+
+	// krećemo iteraciju infiniti blokova, while petlja, krećemo od 0 pa sabiramo (npr 35, 70, 105...)
+	// za svaku iteraciju gledamo koji je offset najbliši njemu, a da je pozitivan ili nula
+	// kada nadjemo taj offset, gledamo koji je entri key paralelan sa tim offsetom, a sve pre njega ignorišemo
+	// prekidamo petlju kada nemamo više offseta koji su veći od trenutne vrednosti bloka
+
+	i := uint32(0)
+	for {
+		offset := uint32(0)
+		found := false
+		for j := 0; j < len(offsets); j++ {
+			if offsets[j] >= i {
+				offset = offsets[j]
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			break
+		}
+
+		for j := 0; j < len(*entries); j++ {
+			if offsets[j] == offset {
+				index = append(index, []byte((*entries)[j].Key)...)
+				index = append(index, 0) // zerobyte
+				index = append(index, entry.Uint32ToBytes(uint32(offset) - uint32(offsets[0]))...)
+				index = append(index, 10) // newline
+				break
+			}
+		}
+
+		i += blockSize
+	}
+
+	return index
 }

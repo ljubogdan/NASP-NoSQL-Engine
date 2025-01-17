@@ -14,7 +14,7 @@
         "max_value_size": 200
     },
     "MEMTABLE": {
-        "entries_per_table": 3,
+        "entries_per_table": 10,
         "number_of_tables": 2,
         "structure": null
     },
