@@ -48,8 +48,6 @@ func message(returnValue uint32) {
 
 func StartCLI() {
 
-	// ovo je i dalje probna faza, ne sme ovako ostati                  Bogdan
-	// ===============================================
 	blockManager := block_manager.NewBlockManager()
 	walManager := wal.NewWalManager()
 	memtableManager := memtable.NewMemtableManager()
@@ -58,13 +56,12 @@ func StartCLI() {
 	writePathObject.BlockManager.FillBufferPool(writePathObject.WalManager.Wal.Path)
 	readPathObject := NewReadPath(blockManager, memtableManager)
 	//writePathObject.WalManager.SetLowWatermark(7)
-	entries := writePathObject.BlockManager.GetEntriesFromLastWal()
+	entries := writePathObject.BlockManager.GetEntriesFromLeftoverWals()
 	for _, entry := range entries {
 		memtableManager.InsertFromWAL(&entry)
 		fmt.Println(entry)
 	}
 
-	// ===============================================
 	reader := bufio.NewReader(os.Stdin)
 	returnValue := uint32(0)
 	for {

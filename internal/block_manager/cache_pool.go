@@ -2,8 +2,7 @@ package block_manager
 
 import (
 	"container/list"
-	"encoding/json"
-	"os"
+	"NASP-NoSQL-Engine/internal/config"
 )
 
 type CachePool struct {
@@ -12,13 +11,8 @@ type CachePool struct {
 }
 
 func NewCachePool() *CachePool {
-	data, err := os.ReadFile(ConfigPath)
-	HandleError(err, "Failed to read config file")
 
-	var config map[string]interface{}
-	json.Unmarshal(data, &config)
-
-	capacity := uint32(config["CACHE_POOL"].(map[string]interface{})["capacity"].(float64))
+	capacity := config.ReadCachePoolCapacity()
 
 	return &CachePool{
 		Capacity: capacity,

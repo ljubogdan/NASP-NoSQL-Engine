@@ -2,18 +2,18 @@ package block_manager
 
 import (
 	"NASP-NoSQL-Engine/internal/entry"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strconv"
+	"NASP-NoSQL-Engine/internal/config"
 )
 
 const (
-	ConfigPath = "../data/config.json" // iz nekog razloga ne rade putanje NASP-NoSQL-Engine/data/config.json...
 	WalsPath   = "../data/wals/"
+	ConfigPath = "../data/config.json"
 )
 
 type BlockManager struct {
@@ -45,14 +45,8 @@ func (bm *BlockManager) FillBufferPool(walPath string) { // walFile je već krei
 	// i pomnožimo ih da dobijemo veličinu bloka
 	// ======= UPOZORENE: ako je došlo do izmene u configu, moramo sve WAL-ove pre toga flushovati =======
 
-	data, err := os.ReadFile(ConfigPath)
-	HandleError(err, "Failed to read config file")
-
-	var config map[string]interface{}
-	json.Unmarshal(data, &config)
-
-	blockSize := uint32(config["SYSTEM"].(map[string]interface{})["block_size"].(map[string]interface{})["default"].(float64))
-	blocksPerWal := uint32(config["WAL"].(map[string]interface{})["blocks_per_wal"].(float64))
+	blockSize := config.ReadBlockSize()
+	blocksPerWal := config.ReadBlocksPerWal()
 
 	file, err := os.Open(walPath)
 	HandleError(err, "Failed to open WAL file")
@@ -139,74 +133,85 @@ func (bm *BlockManager) SyncBufferPoolToWal(walPath string) {
 	HandleError(err, "Failed to sync WAL file")
 }
 
-// metoda koja će na startu sistema vratiti entrije iz zadnjeg wala (listu)
-func (bm *BlockManager) GetEntriesFromLastWal() []entry.Entry {
+func (bm *BlockManager) GetEntriesFromLeftoverWals() []entry.Entry {
 	// napomena: neophodno je nakon promene broja blokova po walu flushovati sve walove
 	// jer se ova metoda oslanja na config fajl
 
-	walPath := bm.BufferPool.Pool.Back().Value.(*BufferBlock).FileName // prema buffer poolu uzimamo poslednji blok
-	walPath = WalsPath + walPath
-	data, err := os.ReadFile(ConfigPath)
-	HandleError(err, "Failed to read config file")
-	var config map[string]interface{}
-	json.Unmarshal(data, &config)
-	blockSize := uint32(config["SYSTEM"].(map[string]interface{})["block_size"].(map[string]interface{})["default"].(float64))
+	files, err := os.ReadDir(WalsPath)
+	HandleError(err, "Failed to read WALS folder")
 
-	file, err := os.Open(walPath)
-	HandleError(err, "Failed to open WAL file")
-	fileInfo, err := file.Stat()
-	HandleError(err, "Failed to get file info")
-	if fileInfo.Size()%int64(blockSize) != 0 {
-		log.Fatalf("WAL file is corrupted")
+	for i := 0; i < len(files); i++ { // sortiranje po imenu
+		for j := i + 1; j < len(files); j++ {
+			if files[i].Name() > files[j].Name() {
+				files[i], files[j] = files[j], files[i]
+			}
+		}
 	}
 
 	entries := make([]entry.Entry, 0)
-	partialEntries := make([][]byte, 0) // praznimo kada se složi entry TYPE = 4 (LAST)
 
-	// učitamo sve iz wala u data
-	walData := make([]byte, fileInfo.Size())
-	HandleError(err, "Failed to read WAL file")
+	for _, file := range files {
 
-	// učitamo u walData sve podatke iz wala
-	_, err = file.Read(walData)
-	HandleError(err, "Failed to read WAL file")
+		walPath := file.Name()
+		fmt.Println(walPath)
 
-	// iteriramo po blokovima
-	for i := uint32(0); i < uint32(fileInfo.Size())/blockSize; i++ {
-		positionInBlock := uint32(0)
-		for positionInBlock < blockSize {
-			if walData[i*blockSize+positionInBlock] == 0 {
-				positionInBlock++
-				continue
-			}
+		walPath = WalsPath + walPath
+		blockSize := config.ReadBlockSize()
 
-			var entrySize uint32
+		file, err := os.Open(walPath)
+		HandleError(err, "Failed to open WAL file")
+		fileInfo, err := file.Stat()
+		HandleError(err, "Failed to get file info")
+		if fileInfo.Size()%int64(blockSize) != 0 {
+			log.Fatalf("WAL file is corrupted")
+		}
 
-			keySize := entry.BytesToUint64(walData[i*blockSize+positionInBlock+entry.KEY_SIZE_START : i*blockSize+positionInBlock+entry.VALUE_SIZE_START])
-			valueSize := entry.BytesToUint64(walData[i*blockSize+positionInBlock+entry.VALUE_SIZE_START : i*blockSize+positionInBlock+entry.KEY_START])
-			typeByte := walData[i*blockSize+positionInBlock+entry.TYPE_START]
+		partialEntries := make([][]byte, 0) // praznimo kada se složi entry TYPE = 4 (LAST)
 
-			entrySize = uint32(entry.CRC_SIZE + entry.TIMESTAMP_SIZE + entry.TOMBSTONE_SIZE + entry.TYPE_SIZE + entry.KEY_SIZE_SIZE + entry.VALUE_SIZE_SIZE + keySize + valueSize)
+		// učitamo sve iz wala u data
+		walData := make([]byte, fileInfo.Size())
 
-			// ako je veličina entrija veća od preostalog dela bloka, grabi samo koliko možeš do kraja bloka
-			if positionInBlock+entrySize > blockSize {
-				entrySize = blockSize - positionInBlock
-			}
+		// učitamo u walData sve podatke iz wala
+		_, err = file.Read(walData)
+		HandleError(err, "Failed to read WAL file")
 
-			entryData := walData[i*blockSize+positionInBlock : i*blockSize+positionInBlock+entrySize]
+		// iteriramo po blokovima
+		for i := uint32(0); i < uint32(fileInfo.Size())/blockSize; i++ {
+			positionInBlock := uint32(0)
+			for positionInBlock < blockSize {
+				if walData[i*blockSize+positionInBlock] == 0 {
+					positionInBlock++
+					continue
+				}
 
-			if typeByte == 1 {
-				entries = append(entries, entry.ConstructEntry(entryData))
-			} else {
-				partialEntries = append(partialEntries, entryData)
-			}
+				var entrySize uint32
 
-			positionInBlock += entrySize
+				keySize := entry.BytesToUint64(walData[i*blockSize+positionInBlock+entry.KEY_SIZE_START : i*blockSize+positionInBlock+entry.VALUE_SIZE_START])
+				valueSize := entry.BytesToUint64(walData[i*blockSize+positionInBlock+entry.VALUE_SIZE_START : i*blockSize+positionInBlock+entry.KEY_START])
+				typeByte := walData[i*blockSize+positionInBlock+entry.TYPE_START]
 
-			if typeByte == 4 {
-				// složimo entry
-				entries = append(entries, ConstructEntryFromPartialEntries(partialEntries))
-				partialEntries = make([][]byte, 0)
+				entrySize = uint32(entry.CRC_SIZE + entry.TIMESTAMP_SIZE + entry.TOMBSTONE_SIZE + entry.TYPE_SIZE + entry.KEY_SIZE_SIZE + entry.VALUE_SIZE_SIZE + keySize + valueSize)
+
+				// ako je veličina entrija veća od preostalog dela bloka, grabi samo koliko možeš do kraja bloka
+				if positionInBlock+entrySize > blockSize {
+					entrySize = blockSize - positionInBlock
+				}
+
+				entryData := walData[i*blockSize+positionInBlock : i*blockSize+positionInBlock+entrySize]
+
+				if typeByte == 1 {
+					entries = append(entries, entry.ConstructEntry(entryData))
+				} else {
+					partialEntries = append(partialEntries, entryData)
+				}
+
+				positionInBlock += entrySize
+
+				if typeByte == 4 {
+					// složimo entry
+					entries = append(entries, ConstructEntryFromPartialEntries(partialEntries))
+					partialEntries = make([][]byte, 0)
+				}
 			}
 		}
 	}

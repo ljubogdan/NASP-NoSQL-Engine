@@ -15,7 +15,7 @@
     },
     "MEMTABLE": {
         "entries_per_table": 10,
-        "number_of_tables": 2,
+        "number_of_tables": 5,
         "structure": null
     },
     "SSTABLE": {

@@ -2,8 +2,7 @@ package block_manager
 
 import (
 	"container/list"
-	"encoding/json"
-	"os"
+	"NASP-NoSQL-Engine/internal/config"
 )
 
 // buffer pool kapacitet bi trebalo uvek da bude sinhronizovan sa kapacitetom wal-a
@@ -13,12 +12,8 @@ type BufferPool struct {
 }
 
 func NewBufferPool() *BufferPool {
-	data, err := os.ReadFile(ConfigPath)
-	HandleError(err, "Failed to read config file")
 
-	var config map[string]interface{}
-	json.Unmarshal(data, &config)
-	capacity := uint32(config["BUFFER_POOL"].(map[string]interface{})["capacity"].(float64))
+	capacity := config.ReadBufferPoolCapacity()
 
 	return &BufferPool{
 		Capacity: capacity,

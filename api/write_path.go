@@ -54,7 +54,7 @@ func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 	keySize := uint32(len(key))
 	valueSize := uint32(len(value))
 
-	blocksPerWal := wpo.WalManager.Wal.BlocksPerWAL
+	blocksPerWal := wpo.WalManager.Wal.BlocksPerWAL                              // ispraviti kada se bude menjalo u configu
 	blockSize := uint32(len(wpo.BlockManager.GetBlockFromBufferPool(0).Data))
 	walSize := uint32(blockSize * blocksPerWal)
 
@@ -67,7 +67,8 @@ func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 	for e := wpo.BlockManager.BufferPool.Pool.Front(); e != nil; e = e.Next() {
 		fileName := e.Value.(*block_manager.BufferBlock).FileName
 		blockNumber := e.Value.(*block_manager.BufferBlock).BlockNumber
-		data := e.Value.(*block_manager.BufferBlock).Data
+		data := make([]byte, len(e.Value.(*block_manager.BufferBlock).Data))
+		copy(data, e.Value.(*block_manager.BufferBlock).Data)
 		bufferPoolCopy.AddBlock(block_manager.NewBufferBlock(fileName, blockNumber, data))
 	}
 
