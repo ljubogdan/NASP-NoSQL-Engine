@@ -54,7 +54,11 @@ func StartCLI() {
 
 	writePathObject := NewWritePath(blockManager, walManager, memtableManager)
 	writePathObject.BlockManager.FillBufferPool(writePathObject.WalManager.Wal.Path)
+
 	readPathObject := NewReadPath(blockManager, memtableManager)
+
+	deletePathObject := NewDeletePath(blockManager, walManager, memtableManager)
+
 	//writePathObject.WalManager.SetLowWatermark(7)
 	entries := writePathObject.BlockManager.GetEntriesFromLeftoverWals()
 	for _, entry := range entries {
@@ -65,7 +69,7 @@ func StartCLI() {
 	reader := bufio.NewReader(os.Stdin)
 	returnValue := uint32(0)
 	for {
-		//clearTerminal()                    Bogdan
+		//clearTerminal()                    
 		fmt.Println("\n" + bold + blue + "════════════════════════" + reset)
 		fmt.Println(bold + green + "\nChoose an option:" + reset)
 		fmt.Println("\n" + yellow + "1. PUT (key, value)" + reset)
@@ -88,7 +92,7 @@ func StartCLI() {
 		case "2\n":
 			returnValue = handleGet(readPathObject)
 		case "3\n":
-			handleDelete()
+			returnValue = handleDelete(deletePathObject)
 		case "4\n":
 			settings()
 		case "5\n":
@@ -155,8 +159,24 @@ func handleGet(rpo *ReadPath) uint32 {
 	return 5
 }
 
-func handleDelete() {
-	fmt.Println(bold + yellow + "\nDELETE operation selected!" + reset)
+func handleDelete(dpo *DeletePath) uint32 {
+	fmt.Print(bold + "\n➤ Enter key: " + reset)
+	reader := bufio.NewReader(os.Stdin)
+	key, _ := reader.ReadString('\n')
+
+	key = strings.TrimSpace(key)
+
+	if key == "" {
+		return 1
+	}
+
+	returnValue := dpo.WriteEntryToWal(key, "")
+	if returnValue == 0 {
+		dpo.MemtableManager.Delete(key)
+		return 0
+	}
+
+	return returnValue
 }
 
 func settings() {

@@ -56,3 +56,12 @@ func ReadCachePoolCapacity() uint32 {
 	return uint32(config["CACHE_POOL"].(map[string]interface{})["capacity"].(float64))
 }
 
+func ReadLowWatermark() uint32 {
+	data, err := os.ReadFile(ConfigPath)
+	HandleError(err, "Failed to read config file")
+
+	var config map[string]interface{}
+	json.Unmarshal(data, &config)
+	return uint32(config["WAL"].(map[string]interface{})["low_watermark"].(float64))
+}
+

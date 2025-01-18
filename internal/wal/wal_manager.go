@@ -1,6 +1,7 @@
 package wal
 
 import (
+	"NASP-NoSQL-Engine/internal/config"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -19,12 +20,8 @@ type WalManager struct {
 }
 
 func NewWalManager() *WalManager {
-	data, err := os.ReadFile(ConfigPath)
-	HandleError(err, "Failed to read config file")
 
-	var config map[string]interface{}
-	json.Unmarshal(data, &config)
-	lwm := uint32(config["WAL"].(map[string]interface{})["low_watermark"].(float64))
+	lwm := config.ReadLowWatermark()
 
 	wal := NewWal()
 	return &WalManager{

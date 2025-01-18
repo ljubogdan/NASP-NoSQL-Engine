@@ -153,7 +153,6 @@ func (bm *BlockManager) GetEntriesFromLeftoverWals() []entry.Entry {
 	for _, file := range files {
 
 		walPath := file.Name()
-		fmt.Println(walPath)
 
 		walPath = WalsPath + walPath
 		blockSize := config.ReadBlockSize()
