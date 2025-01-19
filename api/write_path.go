@@ -6,6 +6,7 @@ import (
 	"NASP-NoSQL-Engine/internal/memtable"
 	"NASP-NoSQL-Engine/internal/sstable"
 	"NASP-NoSQL-Engine/internal/wal"
+	"NASP-NoSQL-Engine/internal/encoded_entry"
 	"fmt"
 	"log"
 	"time"
@@ -123,9 +124,7 @@ func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 
 	for e := bufferPoolCopy.Pool.Front(); e != nil; e = e.Next() {
 
-		if complete {
-			break
-		}
+		if complete { break }
 
 		if e.Value.(*block_manager.BufferBlock).BlockNumber == tempPositionInBufferPool {
 
@@ -273,19 +272,11 @@ func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 }
 
 func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
-	// potrebno je za početak entrije obraditi
-	// koristimo varijabilni enkodejer za enkodovanje entrija tj njegovih numeričkih vrednosti
 
-	compactEntries := make([]byte, 0)
-	offsets := make([]uint32, 0) // trebaće nam kasnije za indexe
-
+	encodedEntries := make([]encoded_entry.EncodedEntry, 0) // za početak enkodiramo entrije za sstabelu
 	for _, e := range *entries {
-		value, size := encodeEntry(&e)
-		compactEntries = append(compactEntries, value...)
-		offsets = append(offsets, size)
+		encodedEntries = append(encodedEntries, encoded_entry.EncodeEntry(e))
 	}
-
-	fmt.Println(compactEntries)
 
 	sst := sstable.NewEmptySSTable() // sada biramo koji režim upisivanja u sstabelu radimo, merge ili standard
 
@@ -294,35 +285,108 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 	if merge {
 		// logika koja se radi kasnije
 	} else {
-		index := createIndex(entries, offsets, sst.BlockSize)
-		fmt.Println("Index ", index)
-		fmt.Println("Offsets ", offsets)
-		fmt.Println("Entries ", entries)
+		// dakle ideja je da se entriji upisuju u sstable po sličnom principu kao i u wal
+		// samo što ove ne znamo koliko će blokova trebati i onda se oni usput kreiraju
+		// svaki blok kada se napravi, upisuje se u sstable
+		// usput i veličinu headera ne znamo unapred, pa ćemo je računati
+		// otvaramo fajl na putanji sstable_xxxxxx
+
+		currentBlockIndex := uint32(0) // kako budem upisivali blokove, povećavaćemo ovaj broj
+		positionInBlock := uint32(0)   // pozicija u bloku, kada se popuni, prelazimo na sledeći blok
+		wpo.BlockManager.CachePool.AddBlock(block_manager.NewCacheBlock(sst.SSTableName+"-"+"data", currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize))
+
+		// iteriramo kroz sve enkodirane entrije i upisujemo ih u cache blokove
+		for _, e := range encodedEntries {
+			compactValue := make([]byte, 0)
+			compactValue = append(compactValue, e.Key...)
+			compactValue = append(compactValue, e.Value...)
+
+			typeArray := make([][2]uint32, 0) // pamti pozicije TYPE elemenata 
+
+			compactBytesWritten := uint32(0)
+			compactValueCurrentPosition := uint32(0)
+
+			crcStart := uint32(0) // računamo start za svaki element jer se sada svaki put razlikuje u encoded entriju
+			timestampStart := crcStart + uint32(len(e.CRC))
+			tombstoneStart := timestampStart + uint32(len(e.Timestamp))
+			typeStart := tombstoneStart + uint32(len(e.Tombstone))
+			
+			header := make([]byte, 0) // pravimo header koji će se uvek upisivati
+			header = append(header, e.CRC...)
+			header = append(header, e.Timestamp...)
+			header = append(header, e.Tombstone...)
+			header = append(header, e.Type...)
+			header = append(header, e.KeySize...)
+			header = append(header, e.ValueSize...)
+
+			complete := false
+
+			// izvršavamo dokle god ne bude complete, prave se novi blokovi i dodaju u cache pool
+			for !complete {
+				cacheBlock := wpo.BlockManager.CachePool.GetBlock(sst.SSTableName + "-" + "data", currentBlockIndex) // mora ime fajla odgovarati 
+
+				// provera da li od trenutne pozicije u bloku ima dovoljno mesta za header
+				if positionInBlock+uint32(len(header)) <= sst.BlockSize {
+					for i := 0; i < len(header); i++ {
+						cacheBlock.Data[positionInBlock] = header[i]
+						positionInBlock++
+
+						if i == int(typeStart) {
+							typeArray = append(typeArray, [2]uint32{currentBlockIndex, positionInBlock - 1})
+						}
+					}
+				} else {
+					currentBlockIndex++
+					wpo.BlockManager.CachePool.AddBlock(block_manager.NewCacheBlock(sst.SSTableName+"-"+"data", currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize))
+					positionInBlock = 0
+					continue
+				}
+
+				// upisujemo ključ i vrednost
+				for i := positionInBlock; i < sst.BlockSize; i++ {
+					cacheBlock.Data[i] = compactValue[compactValueCurrentPosition]
+					compactValueCurrentPosition++
+					compactBytesWritten++
+					positionInBlock++
+					if compactBytesWritten == uint32(len(compactValue)) {
+						complete = true
+						break
+					}
+				}
+
+				// ako smo završili sa upisom, onda postavljamo TYPE elemente
+				if complete {
+					if len(typeArray) == 1 {
+						wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", typeArray[0][0]).Data[typeArray[0][1]] = 1
+					} else {
+						wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", typeArray[0][0]).Data[typeArray[0][1]] = 2
+						wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", typeArray[len(typeArray)-1][0]).Data[typeArray[len(typeArray)-1][1]] = 4
+						for i := 1; i < len(typeArray)-1; i++ {
+							wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", typeArray[i][0]).Data[typeArray[i][1]] = 3
+						}
+					}
+				} else {
+					currentBlockIndex++
+					wpo.BlockManager.CachePool.AddBlock(block_manager.NewCacheBlock(sst.SSTableName+"-"+"data", currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize))
+					positionInBlock = 0
+				}
+			}
+		}
+
+		// upisujemo nove blokove u sstable data
+		for i := uint32(0); i <= currentBlockIndex; i++ {
+			// za sada samo printovati vrednost unutar blokova za kasnije
+			fmt.Println(sst.SSTableName + "-" + "data")
+			fmt.Println(i)                                                          // IZMENITI O B A V E Z N O
+			fmt.Println(wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", i).Data)
+		}
+
+		// kreiramo index na osnovu entrija i bloksize-a...
+
+		
 	}
 
 	return 0
-}
-
-// funkcija koja enkodira entry u niz bajtova
-func encodeEntry(e *entry.Entry) ([]byte, uint32) { // koristi se za sstable
-	encodedEntry := make([]byte, 0)
-
-	encodedEntry = append(encodedEntry, sstable.Uint32toVarint(e.CRC)...)
-	encodedEntry = append(encodedEntry, sstable.Uint64toVarint(e.Timestamp)...)
-	encodedEntry = append(encodedEntry, e.Tombstone)
-	encodedEntry = append(encodedEntry, e.Type)
-	encodedEntry = append(encodedEntry, sstable.Uint64toVarint(e.KeySize)...)
-
-	// ako je tombsotne == 1, onda nema potrebe za upisivanjem vrednosti i veličine vrednosti
-	if e.Tombstone == byte(0) {
-		encodedEntry = append(encodedEntry, sstable.Uint64toVarint(e.ValueSize)...)
-		encodedEntry = append(encodedEntry, []byte(e.Key)...)
-		encodedEntry = append(encodedEntry, e.Value...)
-	} else {
-		encodedEntry = append(encodedEntry, []byte(e.Key)...)
-	}
-
-	return encodedEntry, uint32(len(encodedEntry))
 }
 
 // funkcija koja kreira Index na osnovu bajtova entrija i blocksize-a

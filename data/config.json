@@ -7,15 +7,15 @@
         "capacity": 5
     },
     "CACHE_POOL": {
-        "capacity": 15
+        "capacity": 20
     },
     "ENTRY": {
         "max_key_size": 200,
         "max_value_size": 200
     },
     "MEMTABLE": {
-        "entries_per_table": 10,
-        "number_of_tables": 5,
+        "entries_per_table": 2,
+        "number_of_tables": 2,
         "structure": null
     },
     "SSTABLE": {

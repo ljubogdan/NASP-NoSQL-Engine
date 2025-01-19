@@ -1,8 +1,6 @@
 package sstable
 
 import (
-	"encoding/binary"
-	"fmt"
 	"log"
 )
 
@@ -41,38 +39,4 @@ func (manager *SSTableManager) Get(filename string) *SSTable {    // vraća ssta
 		}
 	}
 	return nil
-}
-
-
-// uint64 u varint
-func Uint64toVarint(value uint64) []byte {
-	buf := make([]byte, binary.MaxVarintLen64)
-	n := binary.PutUvarint(buf, value)
-	return buf[:n]
-}
-
-// varint u uint64
-func VarintToUint64(buf []byte) (uint64, error) {
-	value, n := binary.Uvarint(buf)
-	if n <= 0 {
-		return 0, fmt.Errorf("UvarintToUint64 failed")
-	}
-	return value, nil
-}
-
-// uint32 u varint
-func Uint32toVarint(value uint32) []byte {
-	return Uint64toVarint(uint64(value))
-}
-
-// varint u uint32
-func VarintToUint32(buf []byte) (uint32, error) {
-	value, err := VarintToUint64(buf)
-	if err != nil {
-		return 0, err
-	}
-	if value > uint64(^uint32(0)) {
-		return 0, fmt.Errorf("VarintToUint32 failed - value too large")
-	}
-	return uint32(value), nil
 }

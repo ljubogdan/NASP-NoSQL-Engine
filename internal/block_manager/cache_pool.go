@@ -27,3 +27,16 @@ func (cp *CachePool) AddBlock(cb *CacheBlock) {
 
 	cp.Pool.PushBack(cb)
 }
+
+func (cp *CachePool) Clear() {
+	cp.Pool.Init()
+}
+
+func (cp *CachePool) GetBlock(name string, blockNumber uint32) *CacheBlock {
+	for e := cp.Pool.Front(); e != nil; e = e.Next() {
+		if e.Value.(*CacheBlock).FileName == name && e.Value.(*CacheBlock).BlockNumber == blockNumber {
+			return e.Value.(*CacheBlock)
+		}
+	}
+	return nil
+}

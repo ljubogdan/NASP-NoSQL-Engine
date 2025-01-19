@@ -15,7 +15,7 @@ const (
 )
 
 type SSTable struct {
-	SSTableName string // full putanja do foldera gde se nalazi sstable i ostali fajlovi, dobija se SSTablesPath + ime sstable-a + "/"
+	SSTableName string // ime foldera u kome se nalaze svi fajlovi sstable-a
 	// merkle pointer      // poredimo korene ako valajju dalje ako ne valjaju moramo tačno locirati položaj
 	// bloom filter pointer
 	DataName          string
