@@ -63,13 +63,12 @@ func StartCLI() {
 	entries := writePathObject.BlockManager.GetEntriesFromLeftoverWals()
 	for _, entry := range entries {
 		memtableManager.InsertFromWAL(&entry)
-		fmt.Println(entry)
 	}
 
 	reader := bufio.NewReader(os.Stdin)
 	returnValue := uint32(0)
 	for {
-		//clearTerminal()                    
+		clearTerminal()                    
 		fmt.Println("\n" + bold + blue + "════════════════════════" + reset)
 		fmt.Println(bold + green + "\nChoose an option:" + reset)
 		fmt.Println("\n" + yellow + "1. PUT (key, value)" + reset)
@@ -169,9 +168,9 @@ func handleDelete(dpo *DeletePath) uint32 {
 		return 1
 	}
 
-	returnValue := dpo.WriteEntryToWal(key, "")
+	returnValue := dpo.WriteEntryToWal(key, "") 
 	if returnValue == 0 {
-		dpo.MemtableManager.Delete(key)
+		dpo.MemtableManager.Delete(key)    // ispraviti da se flushuje kada se napuni, mora vratiti entrije 
 		return 0
 	}
 

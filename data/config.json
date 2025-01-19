@@ -30,7 +30,7 @@
     },
     "SYSTEM": {
         "block_size": {
-            "default": 35,
+            "default": 50,
             "size_1": 4096,
             "size_2": 8192,
             "size_3": 16384

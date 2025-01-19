@@ -9,11 +9,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"NASP-NoSQL-Engine/internal/config"
+	"strings"
 )
 
 const (
 	WalsPath   = "../data/wals/"
 	ConfigPath = "../data/config.json"
+	SSTablesPath = "../data/sstables/"
 )
 
 type BlockManager struct {
@@ -258,4 +260,68 @@ func ConstructEntryFromPartialEntries(partialEntries [][]byte) entry.Entry {
 		Key:       key,
 		Value:     value,
 	}
+}
+
+// prihvata cache block
+func (bm *BlockManager) WriteNONMergeBlock(block *CacheBlock) {
+	id := block.FileName // npr. sstable_00001-data ili sstable_00001-index, moramo splitovati po - na 2 dela
+	sstable, file := SplitFileName(id)
+	blockNumber := block.BlockNumber // redni broj bloka u fajlu 0, 1, 2, 3...
+	blockSize := block.BlockSize 
+
+	filePath := SSTablesPath + sstable + "/" + file
+
+	f, err := os.OpenFile(filePath, os.O_RDWR, 0644)
+	HandleError(err, "Failed to open file")
+
+	_, err = f.WriteAt(block.Data, int64(blockNumber*blockSize))
+	HandleError(err, "Failed to write block to file")
+
+	err = f.Sync()
+	HandleError(err, "Failed to sync file")
+
+	err = f.Close()
+	HandleError(err, "Failed to close file")
+}
+
+// funkcija koja samo splituje string po - i vraća 2 dela
+func SplitFileName(id string) (string, string) {
+	s := strings.Split(id, "-")
+	return s[0], s[1]
+}
+
+// funkcija koja upisuje u fajl non-merge index strukturu
+func (bm *BlockManager) WriteNONMergeIndex(index []byte, sstable string) {
+
+	filePath := SSTablesPath + sstable + "/" + "index"
+
+	f, err := os.OpenFile(filePath, os.O_RDWR, 0644)
+	HandleError(err, "Failed to open file")
+
+	_, err = f.Write(index)
+	HandleError(err, "Failed to write index to file")
+
+	err = f.Sync()
+	HandleError(err, "Failed to sync file")
+
+	err = f.Close()
+	HandleError(err, "Failed to close file")
+}
+
+// funkcija koja upisuje non-merge summary u fajl
+func (bm *BlockManager) WriteNONMergeSummary(summary []byte, sstable string) {
+	
+	filePath := SSTablesPath + sstable + "/" + "summary"
+
+	f, err := os.OpenFile(filePath, os.O_RDWR, 0644)
+	HandleError(err, "Failed to open file")
+
+	_, err = f.Write(summary)
+	HandleError(err, "Failed to write summary to file")
+
+	err = f.Sync()
+	HandleError(err, "Failed to sync file")
+
+	err = f.Close()
+	HandleError(err, "Failed to close file")
 }

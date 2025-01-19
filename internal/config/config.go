@@ -65,3 +65,13 @@ func ReadLowWatermark() uint32 {
 	return uint32(config["WAL"].(map[string]interface{})["low_watermark"].(float64))
 }
 
+func ReadSummaryThinning() uint32 {
+	data, err := os.ReadFile(ConfigPath)
+	HandleError(err, "Failed to read config file")
+
+	var config map[string]interface{}
+	json.Unmarshal(data, &config)
+
+	return uint32(config["SSTABLE"].(map[string]interface{})["SSTABLE_SUMMARY"].(map[string]interface{})["thinning"].(float64))
+}
+

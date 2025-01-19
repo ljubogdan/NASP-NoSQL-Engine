@@ -7,7 +7,6 @@ import (
 	"NASP-NoSQL-Engine/internal/sstable"
 	"NASP-NoSQL-Engine/internal/wal"
 	"NASP-NoSQL-Engine/internal/encoded_entry"
-	"fmt"
 	"log"
 	"time"
 )
@@ -280,6 +279,9 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 	sst := sstable.NewEmptySSTable() // sada biramo koji režim upisivanja u sstabelu radimo, merge ili standard
 
+	// pravimo offsetes za index, odnosno listu od 3 para (key, position in block, block index) koja se kasnije prosledjuje createIndex metodi na obradu
+	indexTuples := make([]sstable.IndexTuple, 0)
+
 	merge := sst.Merge
 
 	if merge {
@@ -300,6 +302,8 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 			compactValue := make([]byte, 0)
 			compactValue = append(compactValue, e.Key...)
 			compactValue = append(compactValue, e.Value...)
+
+			indexTupleWritten := false // da li je index tuple upisan
 
 			typeArray := make([][2]uint32, 0) // pamti pozicije TYPE elemenata 
 
@@ -327,6 +331,12 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 				// provera da li od trenutne pozicije u bloku ima dovoljno mesta za header
 				if positionInBlock+uint32(len(header)) <= sst.BlockSize {
+
+					if !indexTupleWritten {
+						indexTuples = append(indexTuples, sstable.IndexTuple{Key: e.Key, PositionInBlock: positionInBlock, BlockIndex: currentBlockIndex})
+						indexTupleWritten = true
+					}
+
 					for i := 0; i < len(header); i++ {
 						cacheBlock.Data[positionInBlock] = header[i]
 						positionInBlock++
@@ -336,6 +346,11 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 						}
 					}
 				} else {
+					// pozovemo metodu koja upisuje blok u sstable i pravimo novi blok (NON-MERGE)
+					block := wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", currentBlockIndex)
+					wpo.BlockManager.WriteNONMergeBlock(block)
+
+					// povećavamo indeks i idemo dalje
 					currentBlockIndex++
 					wpo.BlockManager.CachePool.AddBlock(block_manager.NewCacheBlock(sst.SSTableName+"-"+"data", currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize))
 					positionInBlock = 0
@@ -366,6 +381,9 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 						}
 					}
 				} else {
+					block := wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", currentBlockIndex)
+					wpo.BlockManager.WriteNONMergeBlock(block)
+
 					currentBlockIndex++
 					wpo.BlockManager.CachePool.AddBlock(block_manager.NewCacheBlock(sst.SSTableName+"-"+"data", currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize))
 					positionInBlock = 0
@@ -373,78 +391,19 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 			}
 		}
 
-		// upisujemo nove blokove u sstable data
-		for i := uint32(0); i <= currentBlockIndex; i++ {
-			// za sada samo printovati vrednost unutar blokova za kasnije
-			fmt.Println(sst.SSTableName + "-" + "data")
-			fmt.Println(i)                                                          // IZMENITI O B A V E Z N O
-			fmt.Println(wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", i).Data)
-		}
+		// kreiramo index i upisujemo ga u sstable
+		index := sstable.CreateNONMergeIndex(indexTuples, sst.BlockSize)    // znak pitanja da li treba da se pravi po blokovima ili sve odjednom...
+		wpo.BlockManager.WriteNONMergeIndex(index, sst.SSTableName)
 
-		// kreiramo index na osnovu entrija i bloksize-a...
+		// sada kreiramo summary
+		summary := sstable.CreateNONMergeSummary(indexTuples)
+		wpo.BlockManager.WriteNONMergeSummary(summary, sst.SSTableName)
 
-		
+
+
+
+		// to be continued...
 	}
 
 	return 0
-}
-
-// funkcija koja kreira Index na osnovu bajtova entrija i blocksize-a
-func createIndex(entries *[]entry.Entry, offsets []uint32, blockSize uint32) []byte {
-	// dakle ideja je napraviti index koji će imati key + zerobyte + offset + newline redove
-	// offset je broj bajtova od početka data za taj entry
-	// ubacujemo samo ključeve koji se pojavljuju prvi za svaki blok, ne mora biti nužno pozicija 0 u bloku
-
-	fmt.Println("Offsets ", offsets)
-	for i := 1; i < len(offsets); i++ { // potrebno je korigovati offsete
-		offsets[i] += offsets[i-1]
-	}
-
-	fmt.Println("Offsets ", offsets)
-	// svaki pomeramo za jedan desno, na prvo mesto ide nula a zadnji element se briše
-	for i := len(offsets) - 1; i > 0; i-- {
-		offsets[i] = offsets[i-1]
-	}
-	fmt.Println("Offsets ", offsets)
-
-	offsets[0] = 0
-	fmt.Println("Offsets ", offsets)
-
-	index := make([]byte, 0)
-
-	// krećemo iteraciju infiniti blokova, while petlja, krećemo od 0 pa sabiramo (npr 35, 70, 105...)
-	// za svaku iteraciju gledamo koji je offset najbliši njemu, a da je pozitivan ili nula
-	// kada nadjemo taj offset, gledamo koji je entri key paralelan sa tim offsetom, a sve pre njega ignorišemo
-	// prekidamo petlju kada nemamo više offseta koji su veći od trenutne vrednosti bloka
-
-	i := uint32(0)
-	for {
-		offset := uint32(0)
-		found := false
-		for j := 0; j < len(offsets); j++ {
-			if offsets[j] >= i {
-				offset = offsets[j]
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			break
-		}
-
-		for j := 0; j < len(*entries); j++ {
-			if offsets[j] == offset {
-				index = append(index, []byte((*entries)[j].Key)...)
-				index = append(index, 0) // zerobyte
-				index = append(index, entry.Uint32ToBytes(uint32(offset) - uint32(offsets[0]))...)
-				index = append(index, 10) // newline
-				break
-			}
-		}
-
-		i += blockSize
-	}
-
-	return index
 }
