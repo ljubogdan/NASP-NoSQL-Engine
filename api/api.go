@@ -194,8 +194,13 @@ func handleDelete(dpo *DeletePath) uint32 {
 
 	returnValue := dpo.WriteEntryToWal(key, "") 
 	if returnValue == 0 {
-		dpo.MemtableManager.Delete(key)    // ispraviti da se flushuje kada se napuni, mora vratiti entrije 
-		return 0
+		entries := dpo.MemtableManager.Delete(key)
+		
+		if len(*entries) > 0 {
+			fmt.Println(entries)
+			returnValue = wpo.WriteEntriesToSSTable(entries)
+			return returnValue
+		}
 	}
 
 	return returnValue

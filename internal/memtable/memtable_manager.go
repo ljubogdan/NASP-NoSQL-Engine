@@ -89,6 +89,11 @@ func (manager *MemtableManager) Find(key string) (entry.Entry, bool) {
 	return entry, exists
 }
 
-func (manager *MemtableManager) Delete(key string) {
+func (manager *MemtableManager) Delete(key string) *[]entry.Entry {
 	manager.tables[manager.current].Delete(key)
+	if manager.tables[manager.current].Full() {
+		return manager.Next()
+	}
+	temp := (make([]entry.Entry, 0))
+	return &temp
 }

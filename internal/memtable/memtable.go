@@ -2,6 +2,8 @@ package memtable
 
 import (
 	"NASP-NoSQL-Engine/internal/entry"
+	"NASP-NoSQL-Engine/internal/probabilistics"
+	"NASP-NoSQL-Engine/internal/trees"
 	"sort"
 	"time"
 )
@@ -44,9 +46,9 @@ func NewMemtable(size uint16, structure string) *Memtable {
 	if structure == "map" {
 		return &Memtable{data: &MapWrapper{data: make(map[string]entry.Entry)}, max: size}
 	} else if structure == "list" {
-		return &Memtable{data: &MapWrapper{data: make(map[string]entry.Entry)}, max: size}
+		return &Memtable{data: probabilistics.NewSkipList(size/2), max: size}
 	} else {
-		return &Memtable{data: &MapWrapper{data: make(map[string]entry.Entry)}, max: size}
+		return &Memtable{data: trees.NewBTree(), max: size}
 	}
 }
 
