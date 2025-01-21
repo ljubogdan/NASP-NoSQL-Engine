@@ -45,6 +45,7 @@ func NewMemtableManager() *MemtableManager {
 		if count, exists := memtableConfig.(map[string]interface{})["entries_per_table"].(float64); exists {
 			tableSize = uint16(count)
 		}
+		structure, exists = memtableConfig.(map[string]interface{})["structure"].(string)
 	}
 
 	tables := make([]Memtable, tableCount)

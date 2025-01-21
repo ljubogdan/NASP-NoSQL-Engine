@@ -100,7 +100,7 @@ func StartCLI() {
 		case "2\n":
 			returnValue = handleGet(readPathObject)
 		case "3\n":
-			returnValue = handleDelete(deletePathObject)
+			returnValue = handleDelete(deletePathObject, writePathObject)
 		case "4\n":
 			settings()
 		case "5\n":
@@ -181,7 +181,7 @@ func handleGet(rpo *ReadPath) uint32 {
 	return 5
 }
 
-func handleDelete(dpo *DeletePath) uint32 {
+func handleDelete(dpo *DeletePath, wpo *WritePath) uint32 {
 	fmt.Print(bold + "\n➤ Enter key: " + reset)
 	reader := bufio.NewReader(os.Stdin)
 	key, _ := reader.ReadString('\n')
