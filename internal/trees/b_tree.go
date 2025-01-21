@@ -53,6 +53,14 @@ func (node *BTreeNode) splitChild(i int, t int) {
 
 func (node *BTreeNode) insertNonFull(k string, v entry.Entry) {
 	i := len(node.keys) - 1
+
+	for j, key := range node.keys {
+		if key == k {
+			node.values[j] = v
+			return
+		}
+	}
+
 	if node.isLeaf {
 		node.keys = append(node.keys, "")
 		node.values = append(node.values, entry.Entry{})
