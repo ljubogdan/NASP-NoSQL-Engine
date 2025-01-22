@@ -93,6 +93,11 @@ func (tree *BTree) Insert(data entry.Entry) {
 		tree.root.keys = append(tree.root.keys, k)
 		tree.root.values = append(tree.root.values, data)
 	} else {
+		if _, found := tree.Get(k); found {
+			tree.root.insertNonFull(k, data)
+			return
+		}
+
 		if len(tree.root.keys) == 2*tree.t-1 {
 			newRoot := NewBTreeNode(tree.t, false)
 			newRoot.children = append(newRoot.children, tree.root)
@@ -106,6 +111,21 @@ func (tree *BTree) Insert(data entry.Entry) {
 		} else {
 			tree.root.insertNonFull(k, data)
 		}
+	}
+}
+
+func (tree *BTree) Delete(key string) {
+	if tree.root == nil {
+		fmt.Println("Stablo je prazno.")
+		return
+	}
+
+	data, found := tree.Get(key)
+	if found {
+		data.Tombstone = 1
+		tree.Insert(data)
+	} else {
+		fmt.Println("Ključ nije pronađen.")
 	}
 }
 
