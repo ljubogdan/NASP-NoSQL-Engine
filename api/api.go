@@ -68,7 +68,7 @@ func StartCLI() {
 	reader := bufio.NewReader(os.Stdin)
 	returnValue := uint32(0)
 	for {
-		clearTerminal()                    
+		//clearTerminal()                    
 		fmt.Println("\n" + bold + blue + "════════════════════════" + reset)
 		fmt.Println(bold + green + "\nChoose an option:" + reset)
 		fmt.Println("\n" + yellow + "1. PUT (key, value)" + reset)

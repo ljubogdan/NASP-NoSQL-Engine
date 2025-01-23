@@ -2,8 +2,8 @@ package config
 
 import (
 	"encoding/json"
-	"os"
 	"log"
+	"os"
 )
 
 const (
@@ -75,3 +75,32 @@ func ReadSummaryThinning() uint32 {
 	return uint32(config["SSTABLE"].(map[string]interface{})["SSTABLE_SUMMARY"].(map[string]interface{})["thinning"].(float64))
 }
 
+func ReadBloomFilterExpectedElements() uint32 {
+	data, err := os.ReadFile(ConfigPath)
+	HandleError(err, "Failed to read config file")
+
+	var config map[string]interface{}
+	json.Unmarshal(data, &config)
+
+	return uint32(config["BLOOM_FILTER"].(map[string]interface{})["expected_elements"].(float64))
+}
+
+func ReadBloomFilterFalsePositiveRate() float64 {
+	data, err := os.ReadFile(ConfigPath)
+	HandleError(err, "Failed to read config file")
+
+	var config map[string]interface{}
+	json.Unmarshal(data, &config)
+
+	return config["BLOOM_FILTER"].(map[string]interface{})["false_positive_rate"].(float64)
+}
+
+func ReadMerge() bool {
+	data, err := os.ReadFile(ConfigPath)
+	HandleError(err, "Failed to read config file")
+
+	var config map[string]interface{}
+	json.Unmarshal(data, &config)
+
+	return config["SSTABLE"].(map[string]interface{})["MERGE"].(bool)
+}

@@ -113,16 +113,16 @@ func (bf *BloomFilter) Serialize(buffer *bytes.Buffer) error {
 }
 
 
-func (bf *BloomFilter) SerializeToFile(filename string) error {
+func (bf *BloomFilter) SerializeToFile(filepath string) error {
 	var buffer bytes.Buffer
 
 	if err := bf.Serialize(&buffer); err != nil {
 		return fmt.Errorf("failed to serialize bloom filter: %v", err)
 	}
 
-	file, err := os.Create(filename)
+	file, err := os.OpenFile(filepath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
-		return fmt.Errorf("failed to create file: %v", err)
+		return fmt.Errorf("failed to open or create file: %v", err)
 	}
 	defer file.Close()
 

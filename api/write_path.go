@@ -2,13 +2,18 @@ package api
 
 import (
 	"NASP-NoSQL-Engine/internal/block_manager"
+	"NASP-NoSQL-Engine/internal/encoded_entry"
 	"NASP-NoSQL-Engine/internal/entry"
 	"NASP-NoSQL-Engine/internal/memtable"
 	"NASP-NoSQL-Engine/internal/sstable"
 	"NASP-NoSQL-Engine/internal/wal"
-	"NASP-NoSQL-Engine/internal/encoded_entry"
 	"log"
 	"time"
+	"fmt"
+)
+
+const (
+	SSTablesPath = "../data/sstables/"
 )
 
 func HandleError(err error, msg string) {
@@ -348,7 +353,11 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 				} else {
 					// pozovemo metodu koja upisuje blok u sstable i pravimo novi blok (NON-MERGE)
 					block := wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", currentBlockIndex)
-					wpo.BlockManager.WriteNONMergeBlock(block)
+
+					if !block.WrittenStatus {         // ako blok nije upisan, upisujemo ga
+						wpo.BlockManager.WriteNONMergeBlock(block)
+						block.WrittenStatus = true
+					}
 
 					// povećavamo indeks i idemo dalje
 					currentBlockIndex++
@@ -363,6 +372,7 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 					compactValueCurrentPosition++
 					compactBytesWritten++
 					positionInBlock++
+					fmt.Println(positionInBlock)
 					if compactBytesWritten == uint32(len(compactValue)) {
 						complete = true
 						break
@@ -380,15 +390,30 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 							wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", typeArray[i][0]).Data[typeArray[i][1]] = 3
 						}
 					}
+				
 				} else {
 					block := wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", currentBlockIndex)
-					wpo.BlockManager.WriteNONMergeBlock(block)
+
+					if !block.WrittenStatus {
+						wpo.BlockManager.WriteNONMergeBlock(block)
+						block.WrittenStatus = true
+					}
 
 					currentBlockIndex++
 					wpo.BlockManager.CachePool.AddBlock(block_manager.NewCacheBlock(sst.SSTableName+"-"+"data", currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize))
 					positionInBlock = 0
 				}
 			}
+		}
+
+		// kada smo završili sa upisom svih entrija, potrebno je upisati poslednji blok u sstable
+		// ovo treba proveriti zato što je moguće da će se upisati MOŽDA 2 puta poslednji blok...                         Bogdan
+
+		block := wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", currentBlockIndex)
+
+		if !block.WrittenStatus {
+			wpo.BlockManager.WriteNONMergeBlock(block)
+			block.WrittenStatus = true
 		}
 
 		// kreiramo index i upisujemo ga u sstable
@@ -399,10 +424,16 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		summary := sstable.CreateNONMergeSummary(indexTuples)
 		wpo.BlockManager.WriteNONMergeSummary(summary, sst.SSTableName)
 
+		// potrebno je dodati elemente u bloom filter koji je već kreiran, samo ubacimo ključeve
+		bf := sst.BloomFilter
+		for _, e := range *entries {
+			bf.Add([]byte(e.Key))
+		}
 
-
-
-		// to be continued...
+		// serijalizujemo bloom filter i upisujemo u sstable
+		err := bf.SerializeToFile(SSTablesPath + sst.SSTableName + "/" + sst.BloomFilterName)
+		HandleError(err, "Failed to serialize bloom filter")
+		
 	}
 
 	return 0

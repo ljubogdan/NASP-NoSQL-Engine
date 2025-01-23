@@ -1,15 +1,14 @@
 package sstable
 
 import (
+	"NASP-NoSQL-Engine/internal/config"
+	"NASP-NoSQL-Engine/internal/entry"
 	"NASP-NoSQL-Engine/internal/probabilistics"
 	"NASP-NoSQL-Engine/internal/trees"
 	"encoding/binary"
-	"encoding/json"
-	"NASP-NoSQL-Engine/internal/entry"
 	"fmt"
 	"os"
 	"strconv"
-	"NASP-NoSQL-Engine/internal/config"
 )
 
 const (
@@ -17,9 +16,9 @@ const (
 )
 
 type IndexTuple struct {
-	Key   []byte
+	Key             []byte
 	PositionInBlock uint32
-	BlockIndex uint32
+	BlockIndex      uint32
 }
 
 type SSTable struct {
@@ -35,173 +34,161 @@ type SSTable struct {
 	MergeName         string
 	TOCName           string
 
-	bloomfilter *probabilistics.BloomFilter
-	metadata    *trees.MerkleTree
+	BloomFilter *probabilistics.BloomFilter
+	Metadata    *trees.MerkleTree
 
-	BlockSize uint32        // bitno samo prilikom kreiranja sstable-a, kasnije ove podatke čitamo iz fajla
-	Merge bool
+	BlockSize uint32 // bitno samo prilikom kreiranja sstable-a, kasnije ove podatke čitamo iz fajla
+	Merge     bool
 }
 
 // funkcija koja kreira novi prazan sstable i vraća pokazivač na njega
 func NewEmptySSTable() *SSTable {
-	// nalazimo unutar konfig fajla MERGE i vidimo da li je true ili false
-	data, err := os.ReadFile(ConfigPath)
-	HandleError(err, "Failed to read config file")
 
-	var config map[string]interface{}
-	json.Unmarshal(data, &config)
+	merge := config.ReadMerge()
 
-	mergeConfig, exists := config["SSTABLE"].(map[string]interface{})["MERGE"]
+	expectedElements := config.ReadBloomFilterExpectedElements()
+	falsePositiveRate := config.ReadBloomFilterFalsePositiveRate()
 
-	// pročitamo za bloom filter expected_elements i false_positive_rate
-	expectedElements := uint32(config["BLOOM_FILTER"].(map[string]interface{})["expected_elements"].(float64))
-	falsePositiveRate := config["BLOOM_FILTER"].(map[string]interface{})["false_positive_rate"].(float64)
+	if merge {
+		// moramo napraviti folder unutar SSTablesPath-a u fomatu sstable_xxxxx, indeksi se povećavaju za 1, ako nema ni jedan sstable onda je to sstable_00000
+		// u tom folderu pravimo sve fajlove
 
-	if exists {
-		merge := mergeConfig.(bool)
-		if merge {
-			// moramo napraviti folder unutar SSTablesPath-a u fomatu sstable_xxxxx, indeksi se povećavaju za 1, ako nema ni jedan sstable onda je to sstable_00000
-			// u tom folderu pravimo sve fajlove
+		// prvo učitavamo spisak foldera u SSTablesPath-u
+		folders, err := os.ReadDir(SSTablesPath)
+		HandleError(err, "Failed to read sstables folder")
 
-			// prvo učitavamo spisak foldera u SSTablesPath-u
-			folders, err := os.ReadDir(SSTablesPath)
-			HandleError(err, "Failed to read sstables folder")
+		sstableName := ""
 
-			sstableName := ""
+		// ako ne postoji nijedan folder onda pravimo prvi folder sstable_00000
+		if len(folders) == 0 {
+			sstableName = "sstable_00000"
+			err := os.Mkdir(SSTablesPath+sstableName, 0755)
+			HandleError(err, "Failed to create sstable folder")
 
-			// ako ne postoji nijedan folder onda pravimo prvi folder sstable_00000
-			if len(folders) == 0 {
-				sstableName = "sstable_00000"
-				err := os.Mkdir(SSTablesPath+sstableName, 0755)
-				HandleError(err, "Failed to create sstable folder")
+			// pravimo sve fajlove unutar tog foldera
+			CreateMergeFiles(sstableName)
 
-				// pravimo sve fajlove unutar tog foldera
-				CreateMergeFiles(sstableName)
+		} else if len(folders) != 0 {
+			// ako postoji folder onda nalazimo poslednji folder i povećavamo indeks za 1 po principu walFile := fmt.Sprintf("wal_%05d", i)
+			lastFolder := folders[len(folders)-1].Name()
+			lastFolderIndex, err := strconv.Atoi(lastFolder[8:])
+			HandleError(err, "Failed to convert folder index to int")
+			sstableName = "sstable_" + fmt.Sprintf("%05d", lastFolderIndex+1)
+			err = os.Mkdir(SSTablesPath+sstableName, 0755)
+			HandleError(err, "Failed to create sstable folder")
 
-			} else if len(folders) != 0 {
-				// ako postoji folder onda nalazimo poslednji folder i povećavamo indeks za 1 po principu walFile := fmt.Sprintf("wal_%05d", i)
-				lastFolder := folders[len(folders)-1].Name()
-				lastFolderIndex, err := strconv.Atoi(lastFolder[8:])
-				HandleError(err, "Failed to convert folder index to int")
-				sstableName = "sstable_" + fmt.Sprintf("%05d", lastFolderIndex+1)
-				err = os.Mkdir(SSTablesPath+sstableName, 0755)
-				HandleError(err, "Failed to create sstable folder")
+			// pravimo sve fajlove unutar tog foldera
+			CreateMergeFiles(sstableName)
+		}
 
-				// pravimo sve fajlove unutar tog foldera
-				CreateMergeFiles(sstableName)
-			}
+		// u block size fajlu upisujemo sistemsku vrednost block_size
+		// u merge bin upisujemo 1 ako je merge true, 0 ako je false
+		// u toc bin upisujemo sve fajlove koje imamo u sstable-u, u ovom slučaju to su data, blocksize, merge
 
-			// u block size fajlu upisujemo sistemsku vrednost block_size
-			// u merge bin upisujemo 1 ako je merge true, 0 ako je false
-			// u toc bin upisujemo sve fajlove koje imamo u sstable-u, u ovom slučaju to su data, blocksize, merge
+		blockSize := config.ReadBlockSize()
+		file, err := os.OpenFile(SSTablesPath+sstableName+"/blocksize", os.O_RDWR, 0644)
+		HandleError(err, "Failed to open blocksize file")
+		err = binary.Write(file, binary.BigEndian, blockSize)
+		HandleError(err, "Failed to write block size to blocksize file")
+		file.Close()
 
-			blockSize := uint32(config["SYSTEM"].(map[string]interface{})["block_size"].(map[string]interface{})["default"].(float64))
-			file, err := os.OpenFile(SSTablesPath+sstableName+"/blocksize", os.O_RDWR, 0644)
-			HandleError(err, "Failed to open blocksize file")
-			err = binary.Write(file, binary.BigEndian, blockSize)
-			HandleError(err, "Failed to write block size to blocksize file")
-			file.Close()
+		file, err = os.OpenFile(SSTablesPath+sstableName+"/merge", os.O_RDWR, 0644)
+		HandleError(err, "Failed to open merge file")
+		mergeValue := uint8(1)
+		err = binary.Write(file, binary.BigEndian, mergeValue)
+		HandleError(err, "Failed to write merge to merge file")
+		file.Close()
 
-			file, err = os.OpenFile(SSTablesPath+sstableName+"/merge", os.O_RDWR, 0644)
-			HandleError(err, "Failed to open merge file")
-			mergeValue := uint8(1)
-			err = binary.Write(file, binary.BigEndian, mergeValue)
-			HandleError(err, "Failed to write merge to merge file")
-			file.Close()
+		file, err = os.OpenFile(SSTablesPath+sstableName+"/toc", os.O_RDWR, 0644)
+		HandleError(err, "Failed to open toc file")
+		tocData := []string{"data", "blocksize", "merge"}
+		for _, entry := range tocData {
+			err = binary.Write(file, binary.BigEndian, uint32(len(entry)))
+			HandleError(err, "Failed to write toc entry length to toc file")
+			_, err = file.Write([]byte(entry))
+			HandleError(err, "Failed to write toc entry to toc file")
+		}
+		file.Close()
 
-			file, err = os.OpenFile(SSTablesPath+sstableName+"/toc", os.O_RDWR, 0644)
-			HandleError(err, "Failed to open toc file")
-			tocData := []string{"data", "blocksize", "merge"}
-			for _, entry := range tocData {
-				err = binary.Write(file, binary.BigEndian, uint32(len(entry)))
-				HandleError(err, "Failed to write toc entry length to toc file")
-				_, err = file.Write([]byte(entry))
-				HandleError(err, "Failed to write toc entry to toc file")
-			}
-			file.Close()
+		return &SSTable{
+			SSTableName:       sstableName,
+			DataName:          "data",
+			IndexName:         "",
+			SummaryName:       "",
+			MetadataName:      "",
+			BloomFilterName:   "",
+			BlockSizeFileName: "blocksize",
+			MergeName:         "merge",
+			TOCName:           "toc",
 
-			return &SSTable{
-				SSTableName:       sstableName,
-				DataName:          "data",
-				IndexName:         "",
-				SummaryName:       "",
-				MetadataName:      "",
-				BloomFilterName:   "",
-				BlockSizeFileName: "blocksize",
-				MergeName:         "merge",
-				TOCName:           "toc",
+			BloomFilter: probabilistics.NewBloomFilter(expectedElements, falsePositiveRate),
+			Metadata:    trees.NewMerkleTree(),
 
-				bloomfilter: probabilistics.NewBloomFilter(expectedElements, falsePositiveRate),
-				metadata:    trees.NewMerkleTree(),
+			BlockSize: blockSize,
+			Merge:     true,
+		}
+	} else {
 
-				BlockSize: blockSize,
-				Merge: true,
-			}
-		} else {
+		folders, err := os.ReadDir(SSTablesPath)
+		HandleError(err, "Failed to read sstables folder")
+		fmt.Println(folders)
 
-			folders, err := os.ReadDir(SSTablesPath)
-			HandleError(err, "Failed to read sstables folder")
-			fmt.Println(folders)
+		sstableName := ""
 
-			sstableName := ""
+		if len(folders) == 0 {
+			sstableName = "sstable_00000"
+			err := os.Mkdir(SSTablesPath+sstableName, 0755)
+			HandleError(err, "Failed to create sstable folder")
 
-			if len(folders) == 0 {
-				sstableName = "sstable_00000"
-				err := os.Mkdir(SSTablesPath+sstableName, 0755)
-				HandleError(err, "Failed to create sstable folder")
+			CreateStandardFiles(sstableName)
 
-				CreateStandardFiles(sstableName)
+		} else if len(folders) != 0 {
+			lastFolder := folders[len(folders)-1].Name()
+			lastFolderIndex, err := strconv.Atoi(lastFolder[8:])
+			HandleError(err, "Failed to convert folder index to int")
+			sstableName = "sstable_" + fmt.Sprintf("%05d", lastFolderIndex+1)
+			err = os.Mkdir(SSTablesPath+sstableName, 0755)
+			HandleError(err, "Failed to create sstable folder")
 
-			} else if len(folders) != 0 {
-				lastFolder := folders[len(folders)-1].Name()
-				lastFolderIndex, err := strconv.Atoi(lastFolder[8:])
-				HandleError(err, "Failed to convert folder index to int")
-				sstableName = "sstable_" + fmt.Sprintf("%05d", lastFolderIndex+1)
-				err = os.Mkdir(SSTablesPath+sstableName, 0755)
-				HandleError(err, "Failed to create sstable folder")
+			CreateStandardFiles(sstableName)
+		}
 
-				CreateStandardFiles(sstableName)
-			}
+		blockSize := config.ReadBlockSize()
+		file, err := os.OpenFile(SSTablesPath+sstableName+"/blocksize", os.O_RDWR, 0644)
+		HandleError(err, "Failed to open blocksize file")
+		err = binary.Write(file, binary.BigEndian, blockSize)
+		HandleError(err, "Failed to write block size to blocksize file")
+		file.Close()
 
-			blockSize := uint32(config["SYSTEM"].(map[string]interface{})["block_size"].(map[string]interface{})["default"].(float64))
-			file, err := os.OpenFile(SSTablesPath+sstableName+"/blocksize", os.O_RDWR, 0644)
-			HandleError(err, "Failed to open blocksize file")
-			err = binary.Write(file, binary.BigEndian, blockSize)
-			HandleError(err, "Failed to write block size to blocksize file")
-			file.Close()
+		file, err = os.OpenFile(SSTablesPath+sstableName+"/toc", os.O_RDWR, 0644)
+		HandleError(err, "Failed to open toc file")
+		tocData := []string{"data", "index", "summary", "metadata", "bloomfilter", "blocksize", "merge"}
+		for _, entry := range tocData {
+			err = binary.Write(file, binary.BigEndian, uint32(len(entry)))
+			HandleError(err, "Failed to write toc entry length to toc file")
+			_, err = file.Write([]byte(entry))
+			HandleError(err, "Failed to write toc entry to toc file")
+		}
+		file.Close()
 
-			file, err = os.OpenFile(SSTablesPath+sstableName+"/toc", os.O_RDWR, 0644)
-			HandleError(err, "Failed to open toc file")
-			tocData := []string{"data", "index", "summary", "metadata", "bloomfilter", "blocksize", "merge"}
-			for _, entry := range tocData {
-				err = binary.Write(file, binary.BigEndian, uint32(len(entry)))
-				HandleError(err, "Failed to write toc entry length to toc file")
-				_, err = file.Write([]byte(entry))
-				HandleError(err, "Failed to write toc entry to toc file")
-			}
-			file.Close()
+		return &SSTable{
+			SSTableName:       sstableName,
+			DataName:          "data",
+			IndexName:         "index",
+			SummaryName:       "summary",
+			MetadataName:      "metadata",
+			BloomFilterName:   "bloomfilter",
+			BlockSizeFileName: "blocksize",
+			MergeName:         "merge",
+			TOCName:           "toc",
 
-			return &SSTable{
-				SSTableName:       sstableName,
-				DataName:          "data",
-				IndexName:         "index",
-				SummaryName:       "summary",
-				MetadataName:      "metadata",
-				BloomFilterName:   "bloomfilter",
-				BlockSizeFileName: "blocksize",
-				MergeName:         "merge",
-				TOCName:           "toc",
+			BloomFilter: probabilistics.NewBloomFilter(expectedElements, falsePositiveRate),
+			Metadata:    trees.NewMerkleTree(),
 
-				bloomfilter: probabilistics.NewBloomFilter(expectedElements, falsePositiveRate),
-				metadata:    trees.NewMerkleTree(),
-
-				BlockSize: blockSize,
-				Merge: false,
-			}
+			BlockSize: blockSize,
+			Merge:     false,
 		}
 	}
-
-	return nil
 }
 
 func CreateMergeFiles(sstableName string) {
@@ -255,7 +242,7 @@ func CreateNONMergeIndex(indexTuples []IndexTuple, blockSize uint32) []byte {
 	for _, it := range indexTuples {
 		offset := it.BlockIndex * blockSize
 		offset += it.PositionInBlock
-		
+
 		index = append(index, []byte(it.Key)...)
 		index = append(index, 0)
 		index = append(index, entry.Uint32ToBytes(offset)...)
