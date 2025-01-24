@@ -129,7 +129,6 @@ func handlePut(wpo *WritePath) uint32 {
 
 		// ako su entries prazni, nema ništa za upisati u sstable
 		if len(*entries) > 0 {
-			fmt.Println(entries)
 			returnValue = wpo.WriteEntriesToSSTable(entries)
 			return returnValue
 		}

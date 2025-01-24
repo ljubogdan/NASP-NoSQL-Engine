@@ -430,10 +430,16 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 			bf.Add([]byte(e.Key))
 		}
 
-		// serijalizujemo bloom filter i upisujemo u sstable
-		err := bf.SerializeToFile(SSTablesPath + sst.SSTableName + "/" + sst.BloomFilterName)
-		HandleError(err, "Failed to serialize bloom filter")
-		
+		// serijalizujemo bloom filter i upisujemo ga u sstable
+		wpo.BlockManager.WriteNONMergeBloomFilter(bf, sst.SSTableName)
+		sst.BloomFilter = bf
+
+		// sada je potrebno napraviti metadata (odnosno merkle stablo) i upisati ga u sstable
+		metadata := wpo.BlockManager.CreateAndWriteNONMergeMetadata(SSTablesPath + sst.SSTableName + "/" + sst.DataName, 
+			SSTablesPath + sst.SSTableName + "/" + sst.MetadataName)
+		sst.Metadata = metadata
+
+		// nastaviće se...
 	}
 
 	return 0

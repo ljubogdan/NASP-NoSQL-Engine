@@ -1,20 +1,23 @@
 package block_manager
 
 import (
+	"NASP-NoSQL-Engine/internal/config"
 	"NASP-NoSQL-Engine/internal/entry"
+	"NASP-NoSQL-Engine/internal/probabilistics"
+	"bytes"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strconv"
-	"NASP-NoSQL-Engine/internal/config"
 	"strings"
+	"NASP-NoSQL-Engine/internal/trees"
 )
 
 const (
-	WalsPath   = "../data/wals/"
-	ConfigPath = "../data/config.json"
+	WalsPath     = "../data/wals/"
+	ConfigPath   = "../data/config.json"
 	SSTablesPath = "../data/sstables/"
 )
 
@@ -267,7 +270,7 @@ func (bm *BlockManager) WriteNONMergeBlock(block *CacheBlock) {
 	id := block.FileName // npr. sstable_00001-data ili sstable_00001-index, moramo splitovati po - na 2 dela
 	sstable, file := SplitFileName(id)
 	blockNumber := block.BlockNumber // redni broj bloka u fajlu 0, 1, 2, 3...
-	blockSize := block.BlockSize 
+	blockSize := block.BlockSize
 
 	filePath := SSTablesPath + sstable + "/" + file
 
@@ -293,35 +296,165 @@ func SplitFileName(id string) (string, string) {
 // funkcija koja upisuje u fajl non-merge index strukturu
 func (bm *BlockManager) WriteNONMergeIndex(index []byte, sstable string) {
 
+	blockSize := config.ReadBlockSize()
+
 	filePath := SSTablesPath + sstable + "/" + "index"
 
 	f, err := os.OpenFile(filePath, os.O_RDWR, 0644)
 	HandleError(err, "Failed to open file")
+	defer f.Close()
 
-	_, err = f.Write(index)
-	HandleError(err, "Failed to write index to file")
+	totalSize := uint32(len(index))
+	numBlocks := (totalSize + blockSize - 1) / blockSize // plafoniranje
+
+	for i := uint32(0); i < numBlocks; i++ {
+		start := i * blockSize
+		end := start + blockSize
+		if end > totalSize {
+			end = totalSize
+		}
+
+		block := make([]byte, blockSize)
+		copy(block, index[start:end])
+
+		_, err = f.Write(block)
+		HandleError(err, "Failed to write block to file")
+	}
 
 	err = f.Sync()
 	HandleError(err, "Failed to sync file")
-
-	err = f.Close()
-	HandleError(err, "Failed to close file")
 }
 
-// funkcija koja upisuje non-merge summary u fajl
+// funkcija koja upisuje non-merge summary u fajl blokovski
 func (bm *BlockManager) WriteNONMergeSummary(summary []byte, sstable string) {
-	
+
+	blockSize := config.ReadBlockSize()
+
 	filePath := SSTablesPath + sstable + "/" + "summary"
 
 	f, err := os.OpenFile(filePath, os.O_RDWR, 0644)
 	HandleError(err, "Failed to open file")
+	defer f.Close()
 
-	_, err = f.Write(summary)
-	HandleError(err, "Failed to write summary to file")
+	totalSize := uint32(len(summary))
+	numBlocks := (totalSize + blockSize - 1) / blockSize // plafoniranje
+
+	for i := uint32(0); i < numBlocks; i++ {
+		start := i * blockSize
+		end := start + blockSize
+		if end > totalSize {
+			end = totalSize
+		}
+
+		block := make([]byte, blockSize)
+		copy(block, summary[start:end])
+
+		_, err = f.Write(block)
+		HandleError(err, "Failed to write block to file")
+	}
 
 	err = f.Sync()
 	HandleError(err, "Failed to sync file")
-
-	err = f.Close()
-	HandleError(err, "Failed to close file")
 }
+
+// non merge funkcija koja upisuje bloom filter u fajl blokovski
+// NAPOMENA: ovde se koristi bytes.Buffer
+// NAPOMENA: blokovski upis ne pravi padding na zadnjeg bloka kasnije zbog deserijalizacije
+func (bm *BlockManager) WriteNONMergeBloomFilter(bf *probabilistics.BloomFilter, sstable string) {
+
+	filePath := SSTablesPath + sstable + "/" + "bloomfilter"
+
+	var buffer bytes.Buffer
+
+	if err := bf.Serialize(&buffer); err != nil {
+		log.Fatalf("Failed to serialize bloom filter: %v", err)
+	}
+
+	blockSize := config.ReadBlockSize()
+	data := buffer.Bytes()
+	totalSize := uint32(len(data))
+	numBlocks := (totalSize + blockSize - 1) / blockSize // plafoniranje
+
+	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0666)
+	HandleError(err, "Failed to open file")
+	defer file.Close()
+
+	for i := uint32(0); i < numBlocks; i++ {
+		start := i * blockSize
+		end := start + blockSize
+		if end > totalSize {
+			end = totalSize
+		}
+
+		_, err = file.Write(data[start:end])
+		HandleError(err, "Failed to write bloom filter to file")
+	}
+
+	err = file.Sync()
+	HandleError(err, "Failed to sync file")
+
+}
+
+// funkcija koja kreira Metadata (merkle stablo) 
+// prolazi blokovski kroz data fajl i samo dodaje blokove
+// kasnije se stablo bilduje i serijalizuje
+func (bm *BlockManager) CreateAndWriteNONMergeMetadata(dataPath string, metadataPath string) *trees.MerkleTree {
+
+	mt := trees.NewMerkleTree()
+
+	file, err := os.Open(dataPath)
+	HandleError(err, "Failed to open file")
+
+	blockSize := config.ReadBlockSize()
+
+	for {
+		data := make([]byte, blockSize)
+		n, err := file.Read(data)
+		if err != nil && err != io.EOF {
+			log.Fatalf("Failed to read from file: %v", err)
+		}
+
+		if n < len(data) {
+			break
+		}
+
+		mt.AddBlock(&data)
+	}
+
+	// bildujemo stablo
+	mt.Build()
+
+	err = file.Close()
+	HandleError(err, "Failed to close file")
+
+	// serijalizujemo merkle
+	merkleBytes := mt.Serialize()
+
+	// upisujemo u fajl blokovski bajtove
+	file, err = os.OpenFile(metadataPath, os.O_RDWR|os.O_CREATE, 0666)
+	HandleError(err, "Failed to open file")
+	defer file.Close()
+
+	totalSize := uint32(len(*merkleBytes))
+	numBlocks := (totalSize + blockSize - 1) / blockSize // plafoniranje
+
+	for i := uint32(0); i < numBlocks; i++ {
+		start := i * blockSize
+		end := start + blockSize
+		if end > totalSize {
+			end = totalSize
+		}
+
+		block := make([]byte, blockSize)
+		copy(block, (*merkleBytes)[start:end])
+
+		_, err = file.Write(block)
+		HandleError(err, "Failed to write block to file")
+	}
+
+	err = file.Sync()
+	HandleError(err, "Failed to sync file")
+
+	return mt
+}
+

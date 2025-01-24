@@ -94,8 +94,7 @@ func NewEmptySSTable() *SSTable {
 
 		file, err = os.OpenFile(SSTablesPath+sstableName+"/merge", os.O_RDWR, 0644)
 		HandleError(err, "Failed to open merge file")
-		mergeValue := uint8(1)
-		err = binary.Write(file, binary.BigEndian, mergeValue)
+		_, err = file.Write([]byte("true"))
 		HandleError(err, "Failed to write merge to merge file")
 		file.Close()
 
@@ -158,6 +157,12 @@ func NewEmptySSTable() *SSTable {
 		HandleError(err, "Failed to open blocksize file")
 		err = binary.Write(file, binary.BigEndian, blockSize)
 		HandleError(err, "Failed to write block size to blocksize file")
+		file.Close()
+
+		file, err = os.OpenFile(SSTablesPath+sstableName+"/merge", os.O_RDWR, 0644)
+		HandleError(err, "Failed to open merge file")
+		_, err = file.Write([]byte("false"))
+		HandleError(err, "Failed to write merge to merge file")
 		file.Close()
 
 		file, err = os.OpenFile(SSTablesPath+sstableName+"/toc", os.O_RDWR, 0644)
@@ -256,7 +261,7 @@ func CreateNONMergeIndex(indexTuples []IndexTuple, blockSize uint32) []byte {
 func CreateNONMergeSummary(indexTuples []IndexTuple) []byte {
 	summary := make([]byte, 0)
 
-	// čitamo kolika je proredjenos (e.g. 5 znači svaki 5. IndexTuple uzimamo)
+	// čitamo kolika je proredjenost (e.g. 5 znači svaki 5. IndexTuple uzimamo)
 	thinning := config.ReadSummaryThinning()
 
 	// za početak prodjemo kroz listu ključeva i vidimo koji ključ je najmanji i koji je najveći, to treba upisati na početku summary-a
@@ -277,7 +282,7 @@ func CreateNONMergeSummary(indexTuples []IndexTuple) []byte {
 	summary = append(summary, []byte(keys[0])...)
 	summary = append(summary, 0)
 	summary = append(summary, []byte(keys[len(keys)-1])...)
-	summary = append(summary, 0)
+	summary = append(summary, 10)
 
 	// prolazimo kroz listu indexTuples i upisujemo ključeve i pozicije u bloku
 	for i := 0; i < len(indexTuples); i += int(thinning) {

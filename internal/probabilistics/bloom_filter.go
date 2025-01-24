@@ -112,7 +112,6 @@ func (bf *BloomFilter) Serialize(buffer *bytes.Buffer) error {
 	return nil
 }
 
-
 func (bf *BloomFilter) SerializeToFile(filepath string) error {
 	var buffer bytes.Buffer
 
