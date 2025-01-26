@@ -38,6 +38,12 @@ func HandleError(err error, msg string) {
 
 func (wm *WalManager) DeleteOldWals() { // pronalazi low_watermark unutar config.json i prena njemu uklanja
 
+	// ako je low_watermark = 100000 (možemo imati u sistemu max 100000 wal fajlova (0, 1... 99999)) onda ne radimo ništa
+	// razlog jer nije -1 jer koristimo uint32 i ne može biti negativan broj
+	if wm.LowWatermark == 100000 {
+		return
+	}
+
 	for i := int(wm.LowWatermark); i >= 0; i-- {
 		walFile := fmt.Sprintf("wal_%05d", i)
 		walPath := filepath.Join(WalsPath, walFile)

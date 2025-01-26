@@ -19,11 +19,14 @@ const (
 	WalsPath     = "../data/wals/"
 	ConfigPath   = "../data/config.json"
 	SSTablesPath = "../data/sstables/"
+	FlushedCRCsPath = "../data/flushed_crcs"
 )
 
 type BlockManager struct {
 	BufferPool *BufferPool
 	CachePool  *CachePool
+
+	CRCList []uint32 // neophodno za RemoveExpiredWals
 }
 
 func HandleError(err error, msg string) {
@@ -36,6 +39,8 @@ func NewBlockManager() *BlockManager {
 	return &BlockManager{
 		BufferPool: NewBufferPool(),
 		CachePool:  NewCachePool(),
+
+		CRCList: make([]uint32, 0),
 	}
 }
 
@@ -136,6 +141,76 @@ func (bm *BlockManager) SyncBufferPoolToWal(walPath string) {
 
 	err = file.Sync() // stable write
 	HandleError(err, "Failed to sync WAL file")
+}
+
+func (bm *BlockManager) GetEntriesFromSpecificWal(walName string) []entry.Entry {
+	// dobija ime tipa "wal_00001"
+	// napomena: neophodno je nakon promene broja blokova po walu flushovati sve walove
+	// jer se ova metoda oslanja na config fajl
+
+	walPath := WalsPath + walName
+	blockSize := config.ReadBlockSize()
+
+	file, err := os.Open(walPath)
+	HandleError(err, "Failed to open WAL file")
+	fileInfo, err := file.Stat()
+	HandleError(err, "Failed to get file info")
+	if fileInfo.Size()%int64(blockSize) != 0 {
+		log.Fatalf("WAL file is corrupted")
+	}
+
+	entries := make([]entry.Entry, 0)
+	partialEntries := make([][]byte, 0) // praznimo kada se složi entry TYPE = 4 (LAST)
+
+	// učitamo sve iz wala u data
+	walData := make([]byte, fileInfo.Size())
+
+	// učitamo u walData sve podatke iz wala
+	_, err = file.Read(walData)
+	HandleError(err, "Failed to read WAL file")
+
+	// iteriramo po blokovima
+	for i := uint32(0); i < uint32(fileInfo.Size())/blockSize; i++ {
+		positionInBlock := uint32(0)
+		for positionInBlock < blockSize {
+		
+			if walData[i*blockSize+positionInBlock] == 0 {
+				positionInBlock++
+				continue
+			}
+
+			var entrySize uint32
+
+			keySize := entry.BytesToUint64(walData[i*blockSize+positionInBlock+entry.KEY_SIZE_START : i*blockSize+positionInBlock+entry.VALUE_SIZE_START])
+			valueSize := entry.BytesToUint64(walData[i*blockSize+positionInBlock+entry.VALUE_SIZE_START : i*blockSize+positionInBlock+entry.KEY_START])
+			typeByte := walData[i*blockSize+positionInBlock+entry.TYPE_START]
+
+			entrySize = uint32(entry.CRC_SIZE + entry.TIMESTAMP_SIZE + entry.TOMBSTONE_SIZE + entry.TYPE_SIZE + entry.KEY_SIZE_SIZE + entry.VALUE_SIZE_SIZE + keySize + valueSize)
+
+			// ako je veličina entrija veća od preostalog dela bloka, grabi samo koliko možeš do kraja bloka
+			if positionInBlock+entrySize > blockSize {
+				entrySize = blockSize - positionInBlock
+			}
+
+			entryData := walData[i*blockSize+positionInBlock : i*blockSize+positionInBlock+entrySize]
+
+			if typeByte == 1 {
+				entries = append(entries, entry.ConstructEntry(entryData))
+			} else {
+				partialEntries = append(partialEntries, entryData)
+			}
+
+			positionInBlock += entrySize
+
+			if typeByte == 4 {
+				// složimo entry
+				entries = append(entries, ConstructEntryFromPartialEntries(partialEntries))
+				partialEntries = make([][]byte, 0)
+			}
+		}
+	}
+
+	return entries
 }
 
 func (bm *BlockManager) GetEntriesFromLeftoverWals() []entry.Entry {
@@ -392,7 +467,6 @@ func (bm *BlockManager) WriteNONMergeBloomFilter(bf *probabilistics.BloomFilter,
 
 	err = file.Sync()
 	HandleError(err, "Failed to sync file")
-
 }
 
 // funkcija koja kreira Metadata (merkle stablo) 
@@ -458,3 +532,133 @@ func (bm *BlockManager) CreateAndWriteNONMergeMetadata(dataPath string, metadata
 	return mt
 }
 
+// funkcija koja čita flushed crcs iz fajla (binarni fajl, vrednost - newline - vrednost - newline... vrednosti uint32)
+func (bm *BlockManager) ReadFlushedCRCs() {
+	data, err := os.ReadFile(FlushedCRCsPath)
+	HandleError(err, "Failed to read flushed CRCs file")
+
+	// čitamo bajtove do newline i parsiramo u uint32
+	// NAPOMENA: koristimo big endian
+	
+	for {
+		index := bytes.IndexByte(data, '\n')
+		if index == -1 {
+			break
+		}
+
+		crc := entry.BytesToUint32(data[:index])
+		if !bm.ContainsCRC(crc) {
+			bm.CRCList = append(bm.CRCList, crc)
+		}
+
+		data = data[index+1:]
+	}
+}
+
+// funkcija koja upisuje flushed crcs u fajl
+func (bm *BlockManager) WriteFlushedCRCs() {
+	// otvaramo fajl na putanji i praznimo ga, upisujemo sve crc-ove iz CRCList
+	file, err := os.OpenFile(FlushedCRCsPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	HandleError(err, "Failed to open flushed CRCs file")
+	defer file.Close()
+
+	for _, crc := range bm.CRCList {
+		_, err = file.Write(entry.Uint32ToBytes(crc))
+		HandleError(err, "Failed to write CRC to file")
+		_, err = file.Write([]byte("\n"))
+		HandleError(err, "Failed to write newline to file")
+	}
+
+	err = file.Sync()
+	HandleError(err, "Failed to sync file")
+}
+
+
+// funkcija koja će da čisti zastarele wal fajlove
+func (bm *BlockManager) DetectExpiredWals() {
+	// ideja je dakle napunit CRCList svim CRC entrijima koji su flushovani u sstable
+	// i onda prolazimo kroz sve wal fajlove i njihove entrije
+	// ako se desi da ni jedan CRC iz WAL fajla nije u CRCList, brišemo taj WAL fajl
+	// odnosno postavljamo LowWatermark na broj trenutnog WAL fajla (npr. wal_00005 -> LowWatermark = 5)
+	// ako je wal poslednji, najnoviji ili jedini, ne brišemo ga
+
+	// pročitamo sve CRC-ove iz fajla
+	bm.ReadFlushedCRCs()
+
+	files, err := os.ReadDir(WalsPath)
+	HandleError(err, "Failed to read WALS folder")
+
+	// sortiranje po imenu rastuće (npr. wal_00001, wal_00002, wal_00003...)
+	for i := 0; i < len(files); i++ {
+		for j := i + 1; j < len(files); j++ {
+			if files[i].Name() > files[j].Name() {
+				files[i], files[j] = files[j], files[i]
+			}
+		}
+	}
+
+	for _, file := range files {
+		walName := file.Name()
+
+		entries := bm.GetEntriesFromSpecificWal(walName)
+
+		// prolazimo kroz sve entrije u entries i proveravamo CRC
+		// pošto je CRCList lista flushovanih CRC-ova, ako se svaki CRC iz entries nalazi u CRCList, brišemo WAL (postavljamo LowWatermark samo)
+		// ako se bar jedan CRC ne nalazi u CRCList, ne brišemo WAL
+
+		deleteWal := true
+		for _, entry := range entries {
+			if !bm.ContainsCRC(entry.CRC) {
+				deleteWal = false
+				break
+			}
+		}
+
+		if deleteWal {
+			// proveravamo da li je wal poslednji, ako jeste ne brišemo ga
+			if walName == files[len(files)-1].Name() {
+				break
+			}
+		
+			// upisujemo novi LowWatermark u config.json
+			// recimo wal_00015 -> LowWatermark = 15
+			num, _ := strconv.Atoi(walName[4:])
+			config.WriteLowWatermark(uint32(num)) 
+
+			// brišemo CRC-ove iz CRCList za taj wal
+			for _, entry := range entries {
+				bm.RemoveCRC(entry.CRC)
+			}
+		}
+	}
+}
+
+// funkcija koja proverava da li se CRC nalazi u CRCList
+func (bm *BlockManager) ContainsCRC(crc uint32) bool {
+	for _, c := range bm.CRCList {
+		if c == crc {
+			return true
+		}
+	}
+	return false
+}
+
+// funkcija koja uklanja CRC iz CRCList
+func (bm *BlockManager) RemoveCRC(crc uint32) {
+	for i, c := range bm.CRCList {
+		if c == crc {
+			bm.CRCList = append(bm.CRCList[:i], bm.CRCList[i+1:]...)
+			return
+		}
+	}
+}
+
+// funkcija koja dodaje entrije u CRCList (dobijamo listu crc-ova koji su flushovani)
+// ulazna vrednost je lista entrija 
+func (bm *BlockManager) AddCRCsToCRCList(entries []entry.Entry) {
+	for _, entry := range entries {
+		if !bm.ContainsCRC(entry.CRC) {
+			bm.CRCList = append(bm.CRCList, entry.CRC)
+		}
+	}
+}

@@ -9,7 +9,6 @@ import (
 	"NASP-NoSQL-Engine/internal/wal"
 	"log"
 	"time"
-	"fmt"
 )
 
 const (
@@ -372,7 +371,6 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 					compactValueCurrentPosition++
 					compactBytesWritten++
 					positionInBlock++
-					fmt.Println(positionInBlock)
 					if compactBytesWritten == uint32(len(compactValue)) {
 						complete = true
 						break

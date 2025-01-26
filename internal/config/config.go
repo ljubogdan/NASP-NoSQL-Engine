@@ -104,3 +104,19 @@ func ReadMerge() bool {
 
 	return config["SSTABLE"].(map[string]interface{})["MERGE"].(bool)
 }
+
+func WriteLowWatermark(lowWatermark uint32) {
+	data, err := os.ReadFile(ConfigPath)
+	HandleError(err, "Failed to read config file")
+
+	var config map[string]interface{}
+	json.Unmarshal(data, &config)
+
+	config["WAL"].(map[string]interface{})["low_watermark"] = lowWatermark
+
+	newConfig, err := json.MarshalIndent(config, "", "  ")
+	HandleError(err, "Failed to marshal config")
+
+	err = os.WriteFile(ConfigPath, newConfig, 0644)
+	HandleError(err, "Failed to write config file")
+}

@@ -2,6 +2,7 @@ package api
 
 import (
 	"NASP-NoSQL-Engine/internal/block_manager"
+	"NASP-NoSQL-Engine/internal/config"
 	"NASP-NoSQL-Engine/internal/memtable"
 	"NASP-NoSQL-Engine/internal/wal"
 	"bufio"
@@ -49,6 +50,8 @@ func message(returnValue uint32) {
 func StartCLI() {
 
 	blockManager := block_manager.NewBlockManager()
+
+	blockManager.ReadFlushedCRCs()
 	walManager := wal.NewWalManager()
 	memtableManager := memtable.NewMemtableManager()
 
@@ -59,7 +62,6 @@ func StartCLI() {
 
 	deletePathObject := NewDeletePath(blockManager, walManager, memtableManager)
 
-	//writePathObject.WalManager.SetLowWatermark(7)
 	entries := writePathObject.BlockManager.GetEntriesFromLeftoverWals()
 	for _, entry := range entries {
 		memtableManager.InsertFromWAL(&entry)
@@ -68,6 +70,13 @@ func StartCLI() {
 	reader := bufio.NewReader(os.Stdin)
 	returnValue := uint32(0)
 	for {
+		// =================================================================================================
+		// sistema koji uklanja stare wal fajlove
+		blockManager.DetectExpiredWals() // detektuje istekle wal fajlove i postavlja u configu low_watermark (poziva se uvek nakon put i delete operacije)
+		walManager.LowWatermark = config.ReadLowWatermark()
+		walManager.DeleteOldWals()
+		// =================================================================================================
+
 		//clearTerminal()                    
 		fmt.Println("\n" + bold + blue + "════════════════════════" + reset)
 		fmt.Println(bold + green + "\nChoose an option:" + reset)
@@ -127,8 +136,24 @@ func handlePut(wpo *WritePath) uint32 {
 	if returnValue == 0 {
 		entries := wpo.MemtableManager.Insert(key, []byte(value)) // upisuje u memtable
 
-		// ako su entries prazni, nema ništa za upisati u sstable
+		// ako je dužina entrija veća od nula:
 		if len(*entries) > 0 {
+			// upisujemo CRC-ove u block manager listu
+			wpo.BlockManager.AddCRCsToCRCList(*entries)
+			wpo.BlockManager.WriteFlushedCRCs()
+
+			// printamo trenutne CRC-ove u listi
+			fmt.Println(bold + "\n➤ Current BM CRCs: " + reset)
+			for _, crc := range wpo.BlockManager.CRCList {
+				fmt.Println(crc)
+			}
+
+			// printujemo flushovane CRC-ove
+			fmt.Println(bold + "\n➤ Flushed CRCs: " + reset)
+			for _, entry := range *entries {
+				fmt.Println(entry.CRC)
+			}
+
 			returnValue = wpo.WriteEntriesToSSTable(entries)
 			return returnValue
 		}
