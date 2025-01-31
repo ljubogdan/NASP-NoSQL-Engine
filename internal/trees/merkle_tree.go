@@ -110,7 +110,25 @@ func (merkle *MerkleTree) Build() {
 	merkle.generateTree(hashCount, blockCount, height)
 }
 
-func (merkle *MerkleTree) compareHash(other *MerkleTree, index uint16) bool {
+func (merkle *MerkleTree) CompareHash(hash []byte, index uint16) bool {
+	if len(hash) != 32 {
+		return false
+	}
+
+	adjustedIndex := index * 32
+	if adjustedIndex >= uint16(len(merkle.hashes)) {
+		return false
+	}
+
+	for i := uint16(0); i < 32; i++ {
+		if merkle.hashes[adjustedIndex+i] != hash[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (merkle *MerkleTree) compareNodes(other *MerkleTree, index uint16) bool {
 	for i := uint16(0); i < 32; i++ {
 		if merkle.hashes[index+i] != other.hashes[index+i] {
 			return false
@@ -120,7 +138,7 @@ func (merkle *MerkleTree) compareHash(other *MerkleTree, index uint16) bool {
 }
 
 func (merkle *MerkleTree) compareSubtree(other *MerkleTree, level int, levelIndex uint16) []uint16 {
-	if merkle.compareHash(other, (merkle.levelIndexes[level]+levelIndex)*32) { // Ako se hash poklapa ostatak stabla je sigurno dobar
+	if merkle.compareNodes(other, (merkle.levelIndexes[level]+levelIndex)*32) { // Ako se hash poklapa ostatak stabla je sigurno dobar
 		return []uint16{}
 	} else if level >= len(merkle.levelIndexes)-1 { // Ako se hash lista ne poklapa, vrati poziciju lista
 		return []uint16{levelIndex}
