@@ -142,18 +142,6 @@ func handlePut(wpo *WritePath) uint32 {
 			wpo.BlockManager.AddCRCsToCRCList(*entries)
 			wpo.BlockManager.WriteFlushedCRCs()
 
-			// printamo trenutne CRC-ove u listi
-			fmt.Println(bold + "\n➤ Current BM CRCs: " + reset)
-			for _, crc := range wpo.BlockManager.CRCList {
-				fmt.Println(crc)
-			}
-
-			// printujemo flushovane CRC-ove
-			fmt.Println(bold + "\n➤ Flushed CRCs: " + reset)
-			for _, entry := range *entries {
-				fmt.Println(entry.CRC)
-			}
-
 			returnValue = wpo.WriteEntriesToSSTable(entries)
 			return returnValue
 		}

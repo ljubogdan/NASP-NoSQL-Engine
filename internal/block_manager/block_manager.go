@@ -631,7 +631,11 @@ func (bm *BlockManager) DetectExpiredWals() {
 			// brišemo CRC-ove iz CRCList za taj wal
 			for _, entry := range entries {
 				bm.RemoveCRC(entry.CRC)
+				fmt.Println("Removed CRC: ", entry.CRC)
 			}
+
+			// printujemo kako trenutno izgleda CRCList
+			fmt.Println("CRCList: ", bm.CRCList)
 		}
 	}
 }
