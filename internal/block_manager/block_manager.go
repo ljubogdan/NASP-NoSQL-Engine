@@ -24,6 +24,7 @@ const (
 
 type BlockManager struct {
 	BufferPool *BufferPool
+	WalPool *WalPool
 	CachePool  *CachePool
 
 	CRCList []uint32 // neophodno za RemoveExpiredWals
@@ -37,17 +38,19 @@ func HandleError(err error, msg string) {
 
 func NewBlockManager() *BlockManager {
 	return &BlockManager{
+
 		BufferPool: NewBufferPool(),
+		WalPool: NewWalPool(),
 		CachePool:  NewCachePool(),
 
 		CRCList: make([]uint32, 0),
 	}
 }
 
-// ovo je metoda koja će na startu sistema napuniti buffer pool blokovima
-// prolazimo kroz najskorašnjiji WAL fajl i učitavamo blokove u buffer pool
+// ovo je metoda koja će na startu sistema napuniti wal pool blokovima
+// prolazimo kroz najskorašnjiji WAL fajl i učitavamo blokove u wal pool
 
-func (bm *BlockManager) FillBufferPool(walPath string) { // walFile je već kreiran samo ga prosledimo
+func (bm *BlockManager) FillWalPool(walPath string) { // walFile je već kreiran samo ga prosledimo
 
 	walFile := filepath.Base(walPath)
 
@@ -85,12 +88,12 @@ func (bm *BlockManager) FillBufferPool(walPath string) { // walFile je već krei
 			Data:        data,
 		}
 
-		bm.BufferPool.AddBlock(bb)
+		bm.WalPool.AddBlock(bb)
 	}
 }
 
-func (bm *BlockManager) GetBlockFromBufferPool(index uint32) *BufferBlock {
-	for e := bm.BufferPool.Pool.Front(); e != nil; e = e.Next() {
+func (bm *BlockManager) GetBlockFromWalPool(index uint32) *BufferBlock {
+	for e := bm.WalPool.Pool.Front(); e != nil; e = e.Next() {
 		bb := e.Value.(*BufferBlock)
 		if bb.BlockNumber == index {
 			return bb
@@ -99,12 +102,12 @@ func (bm *BlockManager) GetBlockFromBufferPool(index uint32) *BufferBlock {
 	return nil
 }
 
-func (bm *BlockManager) WriteBufferPoolToWal(walPath string) string { // upisuje i pravi novi wal fajl
+func (bm *BlockManager) WriteWalPoolToWal(walPath string) string { // upisuje i pravi novi wal fajl
 	file, err := os.OpenFile(walPath, os.O_RDWR, 0644)
 	HandleError(err, "Failed to open WAL file")
 	defer file.Close()
 
-	for e := bm.BufferPool.Pool.Front(); e != nil; e = e.Next() {
+	for e := bm.WalPool.Pool.Front(); e != nil; e = e.Next() {
 		block := e.Value.(*BufferBlock)
 		_, err := file.Write(block.Data)
 		HandleError(err, "Failed to write block to WAL file")
@@ -113,7 +116,7 @@ func (bm *BlockManager) WriteBufferPoolToWal(walPath string) string { // upisuje
 	err = file.Sync() // stable write
 	HandleError(err, "Failed to sync WAL file")
 
-	bm.BufferPool.Clear()
+	bm.WalPool.Clear()
 
 	walFile := filepath.Base(walPath)
 
@@ -123,17 +126,17 @@ func (bm *BlockManager) WriteBufferPoolToWal(walPath string) string { // upisuje
 	_, err = os.Create(WalsPath + newWalFile)
 	HandleError(err, "Failed to create new WAL file")
 
-	bm.FillBufferPool(WalsPath + newWalFile)
+	bm.FillWalPool(WalsPath + newWalFile)
 
 	return WalsPath + newWalFile
 }
 
-func (bm *BlockManager) SyncBufferPoolToWal(walPath string) {
+func (bm *BlockManager) SyncWalPoolToWal(walPath string) {
 	file, err := os.OpenFile(walPath, os.O_RDWR, 0644)
 	HandleError(err, "Failed to open WAL file")
 	defer file.Close()
 
-	for e := bm.BufferPool.Pool.Front(); e != nil; e = e.Next() {
+	for e := bm.WalPool.Pool.Front(); e != nil; e = e.Next() {
 		block := e.Value.(*BufferBlock)
 		_, err := file.WriteAt(block.Data, int64(block.BlockNumber*uint32(len(block.Data))))
 		HandleError(err, "Failed to write block to WAL file")
@@ -340,8 +343,8 @@ func ConstructEntryFromPartialEntries(partialEntries [][]byte) entry.Entry {
 	}
 }
 
-// prihvata cache block
-func (bm *BlockManager) WriteNONMergeBlock(block *CacheBlock) {
+// prihvata buffer block
+func (bm *BlockManager) WriteNONMergeBlock(block *BufferBlock) {
 	id := block.FileName // npr. sstable_00001-data ili sstable_00001-index, moramo splitovati po - na 2 dela
 	sstable, file := SplitFileName(id)
 	blockNumber := block.BlockNumber // redni broj bloka u fajlu 0, 1, 2, 3...

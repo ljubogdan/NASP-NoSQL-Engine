@@ -1,42 +1,27 @@
 package block_manager
 
+// ideja je implementirati cache pool da radi sa entrijima
+// ali da immamo implementaciju liste i mape istovremeno
+// odnosno da mapa mapira ključ koji je recimo sstable_xxxxx-blockNumber na element u listi
+// a lista da čuva sve elemente
+
+// lista koristi LRU mehanizam, tako da se elementi koji se najmanje koriste izbacuju
+
 import (
-	"container/list"
 	"NASP-NoSQL-Engine/internal/config"
+	"container/list"
 )
 
 type CachePool struct {
 	Capacity uint32
 	Pool     *list.List
+	Map      map[string]*list.Element
 }
 
 func NewCachePool() *CachePool {
-
-	capacity := config.ReadCachePoolCapacity()
-
 	return &CachePool{
-		Capacity: capacity,
+		Capacity: config.ReadCachePoolCapacity(),
 		Pool:     list.New(),
+		Map:      make(map[string]*list.Element),
 	}
-}
-
-func (cp *CachePool) AddBlock(cb *CacheBlock) {
-	if cp.Pool.Len() == int(cp.Capacity) {
-		cp.Pool.Remove(cp.Pool.Front())
-	}
-
-	cp.Pool.PushBack(cb)
-}
-
-func (cp *CachePool) Clear() {
-	cp.Pool.Init()
-}
-
-func (cp *CachePool) GetBlock(name string, blockNumber uint32) *CacheBlock {
-	for e := cp.Pool.Front(); e != nil; e = e.Next() {
-		if e.Value.(*CacheBlock).FileName == name && e.Value.(*CacheBlock).BlockNumber == blockNumber {
-			return e.Value.(*CacheBlock)
-		}
-	}
-	return nil
 }

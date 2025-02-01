@@ -4,7 +4,7 @@
     "false_positive_rate": 0.02
   },
   "BUFFER_POOL": {
-    "capacity": 5
+    "capacity": 10
   },
   "CACHE_POOL": {
     "capacity": 20
@@ -39,5 +39,8 @@
   "WAL": {
     "blocks_per_wal": 5,
     "low_watermark": 100000
+  },
+  "WAL_POOL": {
+    "capacity": 5
   }
 }

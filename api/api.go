@@ -56,7 +56,7 @@ func StartCLI() {
 	memtableManager := memtable.NewMemtableManager()
 
 	writePathObject := NewWritePath(blockManager, walManager, memtableManager)
-	writePathObject.BlockManager.FillBufferPool(writePathObject.WalManager.Wal.Path)
+	writePathObject.BlockManager.FillWalPool(writePathObject.WalManager.Wal.Path)
 
 	readPathObject := NewReadPath(blockManager, memtableManager)
 
@@ -195,6 +195,8 @@ func handleDelete(dpo *DeletePath) uint32 {
 	returnValue := dpo.WriteEntryToWal(key, "") 
 	if returnValue == 0 {
 		dpo.MemtableManager.Delete(key)    // ispraviti da se flushuje kada se napuni, mora vratiti entrije 
+
+		// ako je dužina entrija veća od nula:
 		return 0
 	}
 

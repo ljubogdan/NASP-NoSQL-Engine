@@ -2,6 +2,7 @@ package api
 
 import (
 	"NASP-NoSQL-Engine/internal/block_manager"
+	"NASP-NoSQL-Engine/internal/config"
 	"NASP-NoSQL-Engine/internal/encoded_entry"
 	"NASP-NoSQL-Engine/internal/entry"
 	"NASP-NoSQL-Engine/internal/memtable"
@@ -59,35 +60,35 @@ func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 	valueSize := uint32(len(value))
 
 	blocksPerWal := wpo.WalManager.Wal.BlocksPerWAL                              // ispraviti kada se bude menjalo u configu
-	blockSize := uint32(len(wpo.BlockManager.GetBlockFromBufferPool(0).Data))
+	blockSize := config.ReadBlockSize()										   // ispraviti kada se bude menjalo u configu
 	walSize := uint32(blockSize * blocksPerWal)
 
 	if keySize+valueSize > (walSize - (blocksPerWal * minimalRequiredSize)) {
 		return 3
 	}
 
-	bufferPoolCopy := block_manager.NewBufferPool()
+	walPoolCopy := block_manager.NewWalPool()
 
-	for e := wpo.BlockManager.BufferPool.Pool.Front(); e != nil; e = e.Next() {
+	for e := wpo.BlockManager.WalPool.Pool.Front(); e != nil; e = e.Next() {
 		fileName := e.Value.(*block_manager.BufferBlock).FileName
 		blockNumber := e.Value.(*block_manager.BufferBlock).BlockNumber
 		data := make([]byte, len(e.Value.(*block_manager.BufferBlock).Data))
 		copy(data, e.Value.(*block_manager.BufferBlock).Data)
-		bufferPoolCopy.AddBlock(block_manager.NewBufferBlock(fileName, blockNumber, data))
+		walPoolCopy.AddBlock(block_manager.NewBufferBlock(fileName, blockNumber, data, blockSize, false))
 	}
 
-	// nadjemo prvu slododnu poziciju u buffer poolu koja je nula bajt 00000000
+	// nadjemo prvu slododnu poziciju u wal poolu koja je nula bajt 00000000
 	// i to uzimamo kao početni položaj za upis
 
 	positionInBlock := uint32(0)
-	positionInBufferPool := uint32(0)
+	positionInWalPool := uint32(0)
 	found := false
 
-	for e := bufferPoolCopy.Pool.Back(); e != nil; e = e.Prev() {
+	for e := walPoolCopy.Pool.Back(); e != nil; e = e.Prev() {
 		for i := int(blockSize) - 1; i >= 0; i-- {
 			if e.Value.(*block_manager.BufferBlock).Data[i] != 0 {
 				positionInBlock = uint32(i) + 1
-				positionInBufferPool = e.Value.(*block_manager.BufferBlock).BlockNumber
+				positionInWalPool = e.Value.(*block_manager.BufferBlock).BlockNumber
 				found = true
 				break
 			}
@@ -118,18 +119,18 @@ func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 	failed := false                   // da li je upis iz prvog pokušaja uspeo
 
 	tempPositionInBlock := positionInBlock
-	tempPositionInBufferPool := positionInBufferPool
+	tempPositionInWalPool := positionInWalPool
 
 	compactBytesWritten := uint32(0)
 	compactValueCurrentPosition := uint32(0)
 
 	complete := false
 
-	for e := bufferPoolCopy.Pool.Front(); e != nil; e = e.Next() {
+	for e := walPoolCopy.Pool.Front(); e != nil; e = e.Next() {
 
 		if complete { break }
 
-		if e.Value.(*block_manager.BufferBlock).BlockNumber == tempPositionInBufferPool {
+		if e.Value.(*block_manager.BufferBlock).BlockNumber == tempPositionInWalPool {
 
 			if tempPositionInBlock+uint32(len(header)) <= blockSize { // pokušamo da upišemo prvo header
 				for i := 0; i < len(header); i++ {
@@ -137,16 +138,16 @@ func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 					tempPositionInBlock++
 
 					if i == TYPE_START {
-						typeArray = append(typeArray, [2]uint32{tempPositionInBufferPool, tempPositionInBlock - 1})
+						typeArray = append(typeArray, [2]uint32{tempPositionInWalPool, tempPositionInBlock - 1})
 					}
 				}
 			} else {
-				if e.Next() == nil { // ako je blok poslednji u buffer poolu, onda failed = true iskačemo iz svih petlji
+				if e.Next() == nil { // ako je blok poslednji u wal poolu, onda failed = true iskačemo iz svih petlji
 					failed = true
 					break
 				} else {
 					tempPositionInBlock = 0
-					tempPositionInBufferPool++
+					tempPositionInWalPool++
 					continue
 				}
 			}
@@ -169,7 +170,7 @@ func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 			}
 
 			tempPositionInBlock = 0
-			tempPositionInBufferPool++
+			tempPositionInWalPool++
 
 		} else {
 			continue
@@ -177,29 +178,29 @@ func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 	}
 
 	if failed {
-		// znači da nam je buffer pool već pun, treba upiasti sve iz poola
+		// znači da nam je wal pool već pun, treba upiasti sve iz poola
 
-		newWalPath := wpo.BlockManager.WriteBufferPoolToWal(wpo.WalManager.Wal.Path) // on već upisuje sve iz buffer poola u wal, napravi nove fajlove i napuni buffer pool
+		newWalPath := wpo.BlockManager.WriteWalPoolToWal(wpo.WalManager.Wal.Path) // on već upisuje sve iz wal poola u wal, napravi nove fajlove i napuni buffer pool
 		wpo.WalManager.Wal.Path = newWalPath
 
-		// pozicije positionInBlock i positionInBufferPool su već uradjene
+		// pozicije positionInBlock i positionInWalPool su već uradjene
 
 		typeArray = make([][2]uint32, 0)
 		compactBytesWritten = uint32(0)
 		compactValueCurrentPosition = uint32(0)
 
 		positionInBlock = uint32(0)
-		positionInBufferPool = uint32(0)
+		positionInWalPool = uint32(0)
 
 		complete = false
 
-		for e := wpo.BlockManager.BufferPool.Pool.Front(); e != nil; e = e.Next() {
+		for e := wpo.BlockManager.WalPool.Pool.Front(); e != nil; e = e.Next() {
 
 			if complete {
 				break
 			}
 
-			if e.Value.(*block_manager.BufferBlock).BlockNumber == positionInBufferPool {
+			if e.Value.(*block_manager.BufferBlock).BlockNumber == positionInWalPool {
 
 				if positionInBlock+uint32(len(header)) <= blockSize {
 					for i := 0; i < len(header); i++ {
@@ -207,7 +208,7 @@ func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 						positionInBlock++
 
 						if i == TYPE_START {
-							typeArray = append(typeArray, [2]uint32{positionInBufferPool, positionInBlock - 1})
+							typeArray = append(typeArray, [2]uint32{positionInWalPool, positionInBlock - 1})
 						}
 					}
 				} else {
@@ -215,7 +216,7 @@ func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 						return 3
 					} else {
 						positionInBlock = 0
-						positionInBufferPool++
+						positionInWalPool++
 						continue
 					}
 				}
@@ -232,7 +233,7 @@ func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 				}
 
 				positionInBlock = 0
-				positionInBufferPool++
+				positionInWalPool++
 
 			} else {
 				continue
@@ -242,35 +243,35 @@ func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 		// sada na osnovu typeArray popunjavamo TYPE elemente
 
 		if len(typeArray) == 1 {
-			wpo.BlockManager.GetBlockFromBufferPool(typeArray[0][0]).Data[typeArray[0][1]] = 1
+			wpo.BlockManager.GetBlockFromWalPool(typeArray[0][0]).Data[typeArray[0][1]] = 1
 		} else {
-			wpo.BlockManager.GetBlockFromBufferPool(typeArray[0][0]).Data[typeArray[0][1]] = 2
-			wpo.BlockManager.GetBlockFromBufferPool(typeArray[len(typeArray)-1][0]).Data[typeArray[len(typeArray)-1][1]] = 4
+			wpo.BlockManager.GetBlockFromWalPool(typeArray[0][0]).Data[typeArray[0][1]] = 2
+			wpo.BlockManager.GetBlockFromWalPool(typeArray[len(typeArray)-1][0]).Data[typeArray[len(typeArray)-1][1]] = 4
 			for i := 1; i < len(typeArray)-1; i++ {
-				wpo.BlockManager.GetBlockFromBufferPool(typeArray[i][0]).Data[typeArray[i][1]] = 3
+				wpo.BlockManager.GetBlockFromWalPool(typeArray[i][0]).Data[typeArray[i][1]] = 3
 			}
 		}
 	} else {
-		for e := bufferPoolCopy.Pool.Front(); e != nil; e = e.Next() {
-			wpo.BlockManager.BufferPool.AddBlock(block_manager.NewBufferBlock(e.Value.(*block_manager.BufferBlock).FileName,
-				e.Value.(*block_manager.BufferBlock).BlockNumber, e.Value.(*block_manager.BufferBlock).Data))
+		for e := walPoolCopy.Pool.Front(); e != nil; e = e.Next() {
+			wpo.BlockManager.WalPool.AddBlock(block_manager.NewBufferBlock(e.Value.(*block_manager.BufferBlock).FileName,
+				e.Value.(*block_manager.BufferBlock).BlockNumber, e.Value.(*block_manager.BufferBlock).Data, blockSize, false))
 		}
 
-		bufferPoolCopy = nil
+		walPoolCopy = nil
 
 		if len(typeArray) == 1 {
-			wpo.BlockManager.GetBlockFromBufferPool(typeArray[0][0]).Data[typeArray[0][1]] = 1
+			wpo.BlockManager.GetBlockFromWalPool(typeArray[0][0]).Data[typeArray[0][1]] = 1
 		} else {
-			wpo.BlockManager.GetBlockFromBufferPool(typeArray[0][0]).Data[typeArray[0][1]] = 2
-			wpo.BlockManager.GetBlockFromBufferPool(typeArray[len(typeArray)-1][0]).Data[typeArray[len(typeArray)-1][1]] = 4
+			wpo.BlockManager.GetBlockFromWalPool(typeArray[0][0]).Data[typeArray[0][1]] = 2
+			wpo.BlockManager.GetBlockFromWalPool(typeArray[len(typeArray)-1][0]).Data[typeArray[len(typeArray)-1][1]] = 4
 			for i := 1; i < len(typeArray)-1; i++ {
-				wpo.BlockManager.GetBlockFromBufferPool(typeArray[i][0]).Data[typeArray[i][1]] = 3
+				wpo.BlockManager.GetBlockFromWalPool(typeArray[i][0]).Data[typeArray[i][1]] = 3
 			}
 		}
 	}
 
-	// sinhronizacija buffer poola sa wal fajlom
-	wpo.BlockManager.SyncBufferPoolToWal(wpo.WalManager.Wal.Path)
+	// sinhronizacija wal poola sa wal fajlom
+	wpo.BlockManager.SyncWalPoolToWal(wpo.WalManager.Wal.Path)
 	return 0
 }
 
@@ -299,9 +300,9 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 		currentBlockIndex := uint32(0) // kako budem upisivali blokove, povećavaćemo ovaj broj
 		positionInBlock := uint32(0)   // pozicija u bloku, kada se popuni, prelazimo na sledeći blok
-		wpo.BlockManager.CachePool.AddBlock(block_manager.NewCacheBlock(sst.SSTableName+"-"+"data", currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize))
+		wpo.BlockManager.BufferPool.AddBlock(block_manager.NewBufferBlock(sst.SSTableName+"-"+"data", currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false))
 
-		// iteriramo kroz sve enkodirane entrije i upisujemo ih u cache blokove
+		// iteriramo kroz sve enkodirane entrije i upisujemo ih u buffer blokove
 		for _, e := range encodedEntries {
 			compactValue := make([]byte, 0)
 			compactValue = append(compactValue, e.Key...)
@@ -329,9 +330,9 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 			complete := false
 
-			// izvršavamo dokle god ne bude complete, prave se novi blokovi i dodaju u cache pool
+			// izvršavamo dokle god ne bude complete, prave se novi blokovi i dodaju u buffer pool
 			for !complete {
-				cacheBlock := wpo.BlockManager.CachePool.GetBlock(sst.SSTableName + "-" + "data", currentBlockIndex) // mora ime fajla odgovarati 
+				bufferBlock := wpo.BlockManager.BufferPool.GetBlock(sst.SSTableName + "-" + "data", currentBlockIndex) // mora ime fajla odgovarati 
 
 				// provera da li od trenutne pozicije u bloku ima dovoljno mesta za header
 				if positionInBlock+uint32(len(header)) <= sst.BlockSize {
@@ -342,7 +343,7 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 					}
 
 					for i := 0; i < len(header); i++ {
-						cacheBlock.Data[positionInBlock] = header[i]
+						bufferBlock.Data[positionInBlock] = header[i]
 						positionInBlock++
 
 						if i == int(typeStart) {
@@ -351,7 +352,7 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 					}
 				} else {
 					// pozovemo metodu koja upisuje blok u sstable i pravimo novi blok (NON-MERGE)
-					block := wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", currentBlockIndex)
+					block := wpo.BlockManager.BufferPool.GetBlock(sst.SSTableName+"-"+"data", currentBlockIndex)
 
 					if !block.WrittenStatus {         // ako blok nije upisan, upisujemo ga
 						wpo.BlockManager.WriteNONMergeBlock(block)
@@ -360,14 +361,14 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 					// povećavamo indeks i idemo dalje
 					currentBlockIndex++
-					wpo.BlockManager.CachePool.AddBlock(block_manager.NewCacheBlock(sst.SSTableName+"-"+"data", currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize))
+					wpo.BlockManager.BufferPool.AddBlock(block_manager.NewBufferBlock(sst.SSTableName+"-"+"data", currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false))
 					positionInBlock = 0
 					continue
 				}
 
 				// upisujemo ključ i vrednost
 				for i := positionInBlock; i < sst.BlockSize; i++ {
-					cacheBlock.Data[i] = compactValue[compactValueCurrentPosition]
+					bufferBlock.Data[i] = compactValue[compactValueCurrentPosition]
 					compactValueCurrentPosition++
 					compactBytesWritten++
 					positionInBlock++
@@ -380,17 +381,17 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 				// ako smo završili sa upisom, onda postavljamo TYPE elemente
 				if complete {
 					if len(typeArray) == 1 {
-						wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", typeArray[0][0]).Data[typeArray[0][1]] = 1
+						wpo.BlockManager.BufferPool.GetBlock(sst.SSTableName+"-"+"data", typeArray[0][0]).Data[typeArray[0][1]] = 1
 					} else {
-						wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", typeArray[0][0]).Data[typeArray[0][1]] = 2
-						wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", typeArray[len(typeArray)-1][0]).Data[typeArray[len(typeArray)-1][1]] = 4
+						wpo.BlockManager.BufferPool.GetBlock(sst.SSTableName+"-"+"data", typeArray[0][0]).Data[typeArray[0][1]] = 2
+						wpo.BlockManager.BufferPool.GetBlock(sst.SSTableName+"-"+"data", typeArray[len(typeArray)-1][0]).Data[typeArray[len(typeArray)-1][1]] = 4
 						for i := 1; i < len(typeArray)-1; i++ {
-							wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", typeArray[i][0]).Data[typeArray[i][1]] = 3
+							wpo.BlockManager.BufferPool.GetBlock(sst.SSTableName+"-"+"data", typeArray[i][0]).Data[typeArray[i][1]] = 3
 						}
 					}
 				
 				} else {
-					block := wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", currentBlockIndex)
+					block := wpo.BlockManager.BufferPool.GetBlock(sst.SSTableName+"-"+"data", currentBlockIndex)
 
 					if !block.WrittenStatus {
 						wpo.BlockManager.WriteNONMergeBlock(block)
@@ -398,7 +399,7 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 					}
 
 					currentBlockIndex++
-					wpo.BlockManager.CachePool.AddBlock(block_manager.NewCacheBlock(sst.SSTableName+"-"+"data", currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize))
+					wpo.BlockManager.BufferPool.AddBlock(block_manager.NewBufferBlock(sst.SSTableName+"-"+"data", currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false))
 					positionInBlock = 0
 				}
 			}
@@ -407,7 +408,7 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		// kada smo završili sa upisom svih entrija, potrebno je upisati poslednji blok u sstable
 		// ovo treba proveriti zato što je moguće da će se upisati MOŽDA 2 puta poslednji blok...                         Bogdan
 
-		block := wpo.BlockManager.CachePool.GetBlock(sst.SSTableName+"-"+"data", currentBlockIndex)
+		block := wpo.BlockManager.BufferPool.GetBlock(sst.SSTableName+"-"+"data", currentBlockIndex)
 
 		if !block.WrittenStatus {
 			wpo.BlockManager.WriteNONMergeBlock(block)
