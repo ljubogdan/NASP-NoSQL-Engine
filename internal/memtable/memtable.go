@@ -2,8 +2,11 @@ package memtable
 
 import (
 	"NASP-NoSQL-Engine/internal/entry"
+	"NASP-NoSQL-Engine/internal/probabilistics"
+	"NASP-NoSQL-Engine/internal/trees"
 	"sort"
 	"time"
+	"math"
 )
 
 type MapWrapper struct {
@@ -38,14 +41,29 @@ func (mw *MapWrapper) Size() int {
 type Memtable struct {
 	data MemtableData
 	max  uint16
+	structure string
 }
 
-func NewMemtable(size uint16) *Memtable {
-	return &Memtable{data: &MapWrapper{data: make(map[string]entry.Entry)}, max: size}
+func NewMemtable(size uint16, structure string) *Memtable {
+	if structure == "map" {
+		return &Memtable{data: &MapWrapper{data: make(map[string]entry.Entry)}, max: size, structure: structure}
+	} else if structure == "list" {
+		return &Memtable{data: probabilistics.NewSkipList(int(math.Ceil(math.Log2(float64(size))))), max: size, structure: structure}
+	} else {
+		return &Memtable{data: trees.NewBTree(int(math.Ceil(math.Log2(float64(size))))), max: size, structure: structure}
+	}
 }
 
 func (mt *Memtable) Put(key string, value []byte) {
-	mt.data.Insert(entry.Entry{Key: key, KeySize: uint64(len(key)), Value: value, ValueSize: uint64(len(value)), Tombstone: byte(0), Timestamp: uint64(time.Now().Unix())})
+	mt.data.Insert(entry.Entry{
+		Key: key,
+		KeySize: uint64(len(key)),
+		Value: value,
+		ValueSize: uint64(len(value)),
+		Tombstone: byte(0),
+		Timestamp: uint64(time.Now().Unix()),
+		CRC: uint32(entry.CRC32(append([]byte(key), value...))),
+	})
 }
 
 func (mt *Memtable) PutFromWAL(newEntry *entry.Entry) {
@@ -64,9 +82,19 @@ func (mt *Memtable) Delete(key string) {
 	value, exists := mt.data.Get(key)
 	if exists {
 		value.Tombstone = byte(1)
+		value.ValueSize = 0
+		value.Value = make([]byte, 0)
 		mt.data.Insert(value)
 	} else {
-		mt.data.Insert(entry.Entry{Key: key, KeySize: uint64(len(key)), Value: make([]byte, 0), ValueSize: 0, Tombstone: byte(1), Timestamp: uint64(time.Now().Unix())})
+		mt.data.Insert(entry.Entry{
+			Key: key,
+			KeySize: uint64(len(key)),
+			Value: make([]byte, 0),
+			ValueSize: 0,
+			Tombstone: byte(1),
+			Timestamp: uint64(time.Now().Unix()),
+			CRC: uint32(entry.CRC32(append([]byte(key), value.Value...))),
+		})
 	}
 }
 
@@ -79,13 +107,20 @@ func (mt *Memtable) Flush() *[]entry.Entry {
 	sort.Slice(entries[:], func(i, j int) bool {
 		return entries[i].Key < entries[j].Key
 	})
-	mt.data = &MapWrapper{data: make(map[string]entry.Entry)}
+
+	if mt.structure == "map" {
+		mt.data = &MapWrapper{data: make(map[string]entry.Entry)}
+	} else if mt.structure == "list" {
+		mt.data = probabilistics.NewSkipList(int(math.Ceil(math.Log2(float64(mt.max)))))
+	} else {
+		mt.data = trees.NewBTree(int(math.Ceil(math.Log2(float64(mt.max)))))
+	}
 
 	// računamo za svaki entry CRC32
-	for i := 0; i < len(entries); i++ {
-		ent := &entries[i]
-		ent.CRC = uint32(entry.CRC32(append([]byte(ent.Key), ent.Value...)))
-	}
+	// for i := 0; i < len(entries); i++ {
+	// 	ent := &entries[i]
+	// 	ent.CRC = uint32(entry.CRC32(append([]byte(ent.Key), ent.Value...)))
+	// }
 
 	return &entries
 }

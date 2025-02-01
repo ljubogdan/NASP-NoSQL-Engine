@@ -29,6 +29,7 @@ func HandleError(err error, msg string) {
 func NewMemtableManager() *MemtableManager {
 	tableCount := uint16(5)
 	tableSize := uint16(10)
+	structure := "map"
 
 	data, err := os.ReadFile(ConfigPath)
 	HandleError(err, "Failed to read config file")
@@ -44,11 +45,12 @@ func NewMemtableManager() *MemtableManager {
 		if count, exists := memtableConfig.(map[string]interface{})["entries_per_table"].(float64); exists {
 			tableSize = uint16(count)
 		}
+		structure, exists = memtableConfig.(map[string]interface{})["structure"].(string)
 	}
 
 	tables := make([]Memtable, tableCount)
 	for i := 0; i < int(tableCount); i++ {
-		tables[i] = *NewMemtable(tableSize)
+		tables[i] = *NewMemtable(tableSize, structure)
 	}
 	return &MemtableManager{tables: tables, current: 0}
 }
@@ -59,19 +61,6 @@ func (manager *MemtableManager) Next() *[]entry.Entry {
 }
 
 func (manager *MemtableManager) Insert(key string, value []byte) *[]entry.Entry {
-	tableCount := uint16(len(manager.tables))
-	_, exists := manager.tables[manager.current].Get(key)
-	if !exists {
-		for i := (manager.current - 1 + tableCount) % tableCount; i != manager.current; i = (i - 1 + tableCount) % tableCount {
-			_, exists = manager.tables[i].Get(key)
-			if exists {
-				manager.tables[i].Put(key, value)
-				temp := (make([]entry.Entry, 0))
-				return &temp
-			}
-		}
-	}
-
 	manager.tables[manager.current].Put(key, value)
 	if manager.tables[manager.current].Full() {
 		return manager.Next()
@@ -81,19 +70,6 @@ func (manager *MemtableManager) Insert(key string, value []byte) *[]entry.Entry 
 }
 
 func (manager *MemtableManager) InsertFromWAL(newEntry *entry.Entry) *[]entry.Entry {
-	tableCount := uint16(len(manager.tables))
-	_, exists := manager.tables[manager.current].Get(newEntry.Key)
-	if !exists {
-		for i := (manager.current - 1 + tableCount) % tableCount; i != manager.current; i = (i - 1 + tableCount) % tableCount {
-			_, exists = manager.tables[i].Get(newEntry.Key)
-			if exists {
-				manager.tables[i].PutFromWAL(newEntry)
-				temp := (make([]entry.Entry, 0))
-				return &temp
-			}
-		}
-	}
-
 	manager.tables[manager.current].PutFromWAL(newEntry)
 	if manager.tables[manager.current].Full() {
 		return manager.Next()
@@ -114,18 +90,11 @@ func (manager *MemtableManager) Find(key string) (entry.Entry, bool) {
 	return entry, exists
 }
 
-func (manager *MemtableManager) Delete(key string) {
-	tableCount := uint16(len(manager.tables))
-	_, exists := manager.tables[manager.current].Get(key)
-	if !exists {
-		for i := (manager.current - 1 + tableCount) % tableCount; i != manager.current; i = (i - 1 + tableCount) % tableCount {
-			_, exists = manager.tables[i].Get(key)
-			if exists {
-				manager.tables[i].Delete(key)
-				return
-			}
-		}
-	}
+func (manager *MemtableManager) Delete(key string) *[]entry.Entry {
 	manager.tables[manager.current].Delete(key)
-
+	if manager.tables[manager.current].Full() {
+		return manager.Next()
+	}
+	temp := (make([]entry.Entry, 0))
+	return &temp
 }

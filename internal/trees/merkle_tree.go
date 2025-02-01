@@ -110,7 +110,25 @@ func (merkle *MerkleTree) Build() {
 	merkle.generateTree(hashCount, blockCount, height)
 }
 
-func (merkle *MerkleTree) compareHash(other *MerkleTree, index uint16) bool {
+func (merkle *MerkleTree) CompareHash(hash []byte, index uint16) bool {
+	if len(hash) != 32 {
+		return false
+	}
+
+	adjustedIndex := index * 32
+	if adjustedIndex >= uint16(len(merkle.hashes)) {
+		return false
+	}
+
+	for i := uint16(0); i < 32; i++ {
+		if merkle.hashes[adjustedIndex+i] != hash[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (merkle *MerkleTree) compareNodes(other *MerkleTree, index uint16) bool {
 	for i := uint16(0); i < 32; i++ {
 		if merkle.hashes[index+i] != other.hashes[index+i] {
 			return false
@@ -120,7 +138,7 @@ func (merkle *MerkleTree) compareHash(other *MerkleTree, index uint16) bool {
 }
 
 func (merkle *MerkleTree) compareSubtree(other *MerkleTree, level int, levelIndex uint16) []uint16 {
-	if merkle.compareHash(other, (merkle.levelIndexes[level]+levelIndex)*32) { // Ako se hash poklapa ostatak stabla je sigurno dobar
+	if merkle.compareNodes(other, (merkle.levelIndexes[level]+levelIndex)*32) { // Ako se hash poklapa ostatak stabla je sigurno dobar
 		return []uint16{}
 	} else if level >= len(merkle.levelIndexes)-1 { // Ako se hash lista ne poklapa, vrati poziciju lista
 		return []uint16{levelIndex}
@@ -134,7 +152,37 @@ func (merkle *MerkleTree) compareSubtree(other *MerkleTree, level int, levelInde
 	return blocks
 }
 
+// TODO: Optimizacija i pregledati probleme sa uint16 formatom
 func (merkle *MerkleTree) Compare(other *MerkleTree) []uint16 {
+	difference := len(merkle.hashes) - len(other.hashes)
+	if difference > 0 {
+		extended := MerkleTree{hashes: make([]byte, len(merkle.hashes)), levelIndexes: merkle.levelIndexes}
+		levelDifference := len(merkle.levelIndexes) - len(other.levelIndexes)
+		for i := len(other.levelIndexes) - 2; i > -1; i-- {
+			for j := uint64(0); j < (uint64(other.levelIndexes[i+1])-uint64(other.levelIndexes[i]))*32; j++ {
+				extended.hashes[uint64(merkle.levelIndexes[levelDifference+i]*32)+j] = other.hashes[uint64(other.levelIndexes[i]*32)+j]
+			}
+		}
+		i := len(other.levelIndexes) - 1
+		for j := uint64(0); j < uint64(len(other.hashes))-(uint64(other.levelIndexes[i])*32); j++ {
+			extended.hashes[uint64(merkle.levelIndexes[levelDifference+i]*32)+j] = other.hashes[uint64(other.levelIndexes[i]*32)+j]
+		}
+		return merkle.compareSubtree(&extended, 0, 0)
+	} else if difference < 0 {
+		extended := MerkleTree{hashes: make([]byte, len(other.hashes)), levelIndexes: other.levelIndexes}
+		levelDifference := len(other.levelIndexes) - len(merkle.levelIndexes)
+		for i := len(merkle.levelIndexes) - 2; i > -1; i-- {
+			for j := uint64(0); j < (uint64(merkle.levelIndexes[i+1])-uint64(merkle.levelIndexes[i]))*32; j++ {
+				extended.hashes[uint64(other.levelIndexes[levelDifference+i]*32)+j] = merkle.hashes[uint64(merkle.levelIndexes[i]*32)+j]
+			}
+		}
+		i := len(merkle.levelIndexes) - 1
+		for j := uint64(0); j < uint64(len(merkle.hashes))-(uint64(merkle.levelIndexes[i])*32); j++ {
+			extended.hashes[uint64(other.levelIndexes[levelDifference+i]*32)+j] = merkle.hashes[uint64(merkle.levelIndexes[i]*32)+j]
+		}
+		return other.compareSubtree(&extended, 0, 0)
+	}
+
 	return merkle.compareSubtree(other, 0, 0)
 }
 

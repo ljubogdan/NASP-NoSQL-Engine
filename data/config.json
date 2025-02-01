@@ -23,17 +23,6 @@
     "MERGE": false,
     "SSTABLE_MANAGER": {
       "capacity": 5
-    },
-    "SSTABLE_SUMMARY": {
-      "thinning": 5
-    }
-  },
-  "SYSTEM": {
-    "block_size": {
-      "default": 50,
-      "size_1": 4096,
-      "size_2": 8192,
-      "size_3": 16384
     }
   },
   "WAL": {
