@@ -15,13 +15,11 @@ import (
 type CachePool struct {
 	Capacity uint32
 	Pool     *list.List
-	Map      map[string]*list.Element
 }
 
 func NewCachePool() *CachePool {
 	return &CachePool{
 		Capacity: config.ReadCachePoolCapacity(),
 		Pool:     list.New(),
-		Map:      make(map[string]*list.Element),
 	}
 }

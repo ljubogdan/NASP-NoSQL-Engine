@@ -4,6 +4,7 @@ import (
 	"NASP-NoSQL-Engine/internal/config"
 	"NASP-NoSQL-Engine/internal/entry"
 	"NASP-NoSQL-Engine/internal/probabilistics"
+	"NASP-NoSQL-Engine/internal/trees"
 	"bytes"
 	"fmt"
 	"io"
@@ -12,19 +13,19 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"NASP-NoSQL-Engine/internal/trees"
+	"encoding/binary"
 )
 
 const (
-	WalsPath     = "../data/wals/"
-	ConfigPath   = "../data/config.json"
-	SSTablesPath = "../data/sstables/"
+	WalsPath        = "../data/wals/"
+	ConfigPath      = "../data/config.json"
+	SSTablesPath    = "../data/sstables/"
 	FlushedCRCsPath = "../data/flushed_crcs"
 )
 
 type BlockManager struct {
 	BufferPool *BufferPool
-	WalPool *WalPool
+	WalPool    *WalPool
 	CachePool  *CachePool
 
 	CRCList []uint32 // neophodno za RemoveExpiredWals
@@ -40,10 +41,68 @@ func NewBlockManager() *BlockManager {
 	return &BlockManager{
 
 		BufferPool: NewBufferPool(),
-		WalPool: NewWalPool(),
+		WalPool:    NewWalPool(),
 		CachePool:  NewCachePool(),
+		CRCList:    make([]uint32, 0),
+	}
+}
 
-		CRCList: make([]uint32, 0),
+func (bm *BlockManager) WriteBlock(path string, block *BufferBlock) {
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
+	HandleError(err, "Failed to open file")
+	defer file.Close()
+
+	_, err = file.WriteAt(block.Data, int64(block.BlockNumber*uint32(len(block.Data))))
+	HandleError(err, "Failed to write block to file")
+
+	err = file.Sync()
+	HandleError(err, "Failed to sync file")
+
+	// menjamo WrittenStatus na true
+	block.WrittenStatus = true
+}
+
+// pravimo funkciju koja će na da pročita sadržaj bloka na odredjenoj putanji
+func (bm *BlockManager) ReadBlock(path string, blockNumber uint32, blockSize uint32) *BufferBlock {
+
+	file, err := os.Open(path)
+	HandleError(err, "Failed to open file")
+	defer file.Close()
+
+	data := make([]byte, blockSize)
+	// čitamo onoliko koliko možemo, ako je manje od bloka, popunjavamo nulama
+	n, err := file.ReadAt(data, int64(blockNumber*blockSize))
+	if err != nil && err != io.EOF {
+		log.Fatalf("Failed to read from file: %v", err)
+	}
+
+	// binarne nule dodajemo
+	if n < len(data) {
+		for i := n; i < len(data); i++ {
+			data[i] = 0
+		}
+	}
+
+	// kreiramo blok i vraćamo ga, gde je filename:
+	// npr. ../data/sstables/sstable_00001/data -> sstables-sstable_00001-data
+	// npr. ../data/wals/wal_00001 -> wals-wal_00001
+	// splitujemo po / i uzimamo sve delove nakon data i spajamo ih
+
+	s := strings.Split(path, "/")
+	pos := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == "data" {
+			pos = i
+			break
+		}
+	}
+
+	fileName := strings.Join(s[pos+1:], "-")
+
+	return &BufferBlock{
+		FileName:    fileName,
+		BlockNumber: blockNumber,
+		Data:        data,
 	}
 }
 
@@ -176,7 +235,7 @@ func (bm *BlockManager) GetEntriesFromSpecificWal(walName string) []entry.Entry 
 	for i := uint32(0); i < uint32(fileInfo.Size())/blockSize; i++ {
 		positionInBlock := uint32(0)
 		for positionInBlock < blockSize {
-		
+
 			if walData[i*blockSize+positionInBlock] == 0 {
 				positionInBlock++
 				continue
@@ -345,24 +404,27 @@ func ConstructEntryFromPartialEntries(partialEntries [][]byte) entry.Entry {
 
 // prihvata buffer block
 func (bm *BlockManager) WriteNONMergeBlock(block *BufferBlock) {
-	id := block.FileName // npr. sstable_00001-data ili sstable_00001-index, moramo splitovati po - na 2 dela
-	sstable, file := SplitFileName(id)
-	blockNumber := block.BlockNumber // redni broj bloka u fajlu 0, 1, 2, 3...
-	blockSize := block.BlockSize
 
-	filePath := SSTablesPath + sstable + "/" + file
+	fileName := block.FileName
 
-	f, err := os.OpenFile(filePath, os.O_RDWR, 0644)
-	HandleError(err, "Failed to open file")
+	// pravimo putanju do fajla
+	// filename može biti sstables-sstable_00001-data ili wals-wal_00001
+	// splitujemo po - i uzimamo sve delove nakon sstables ili wals i spajamo ih
+	s := strings.Split(fileName, "-")
+	pos := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == "sstables" || s[i] == "wals" {
+			pos = i
+			break
+		}
+	}
 
-	_, err = f.WriteAt(block.Data, int64(blockNumber*blockSize))
-	HandleError(err, "Failed to write block to file")
+	filePath := SSTablesPath + strings.Join(s[pos+1:], "/")
 
-	err = f.Sync()
-	HandleError(err, "Failed to sync file")
-
-	err = f.Close()
-	HandleError(err, "Failed to close file")
+	// koristimo write block metodu
+	bm.WriteBlock(filePath, block)
+	block.WrittenStatus = true
+	bm.BufferPool.AddBlock(block) // OBAVEZNO NA KRAJU DODAMO U BUFFER POOL!!!!!!!!
 }
 
 // funkcija koja samo splituje string po - i vraća 2 dela
@@ -372,6 +434,7 @@ func SplitFileName(id string) (string, string) {
 }
 
 // funkcija koja upisuje u fajl non-merge index strukturu
+// PADDING je NA ZADNJEM BLOKU
 func (bm *BlockManager) WriteNONMergeIndex(index []byte, sstable string) {
 
 	blockSize := config.ReadBlockSize()
@@ -395,8 +458,18 @@ func (bm *BlockManager) WriteNONMergeIndex(index []byte, sstable string) {
 		block := make([]byte, blockSize)
 		copy(block, index[start:end])
 
-		_, err = f.Write(block)
-		HandleError(err, "Failed to write block to file")
+		// kreiramo blok i upisujemo ga u fajl pomoću write block metode
+		bb := &BufferBlock{
+			FileName:    "sstables-" + sstable + "-index",
+			BlockNumber: i,
+			Data:        block,
+			BlockSize:   blockSize,
+
+			WrittenStatus: true,
+		}
+
+		bm.WriteBlock(filePath, bb)
+		bm.BufferPool.AddBlock(bb)
 	}
 
 	err = f.Sync()
@@ -404,6 +477,7 @@ func (bm *BlockManager) WriteNONMergeIndex(index []byte, sstable string) {
 }
 
 // funkcija koja upisuje non-merge summary u fajl blokovski
+// PADDING je na ZADNJEM BLOKU
 func (bm *BlockManager) WriteNONMergeSummary(summary []byte, sstable string) {
 
 	blockSize := config.ReadBlockSize()
@@ -427,8 +501,18 @@ func (bm *BlockManager) WriteNONMergeSummary(summary []byte, sstable string) {
 		block := make([]byte, blockSize)
 		copy(block, summary[start:end])
 
-		_, err = f.Write(block)
-		HandleError(err, "Failed to write block to file")
+		// kreiramo novi blok i dodajemo u buffer pool
+		bb := &BufferBlock{
+			FileName:    "sstables-" + sstable + "-summary",
+			BlockNumber: i,
+			Data:        block,
+			BlockSize:   blockSize,
+
+			WrittenStatus: true,
+		}
+
+		bm.WriteBlock(filePath, bb)
+		bm.BufferPool.AddBlock(bb) // OBAVEZNO NA KRAJU DODAMO U BUFFER POOL!!!!!!!!
 	}
 
 	err = f.Sync()
@@ -439,11 +523,9 @@ func (bm *BlockManager) WriteNONMergeSummary(summary []byte, sstable string) {
 // NAPOMENA: ovde se koristi bytes.Buffer
 // NAPOMENA: blokovski upis ne pravi padding na zadnjeg bloka kasnije zbog deserijalizacije
 func (bm *BlockManager) WriteNONMergeBloomFilter(bf *probabilistics.BloomFilter, sstable string) {
-
 	filePath := SSTablesPath + sstable + "/" + "bloomfilter"
 
 	var buffer bytes.Buffer
-
 	if err := bf.Serialize(&buffer); err != nil {
 		log.Fatalf("Failed to serialize bloom filter: %v", err)
 	}
@@ -451,7 +533,7 @@ func (bm *BlockManager) WriteNONMergeBloomFilter(bf *probabilistics.BloomFilter,
 	blockSize := config.ReadBlockSize()
 	data := buffer.Bytes()
 	totalSize := uint32(len(data))
-	numBlocks := (totalSize + blockSize - 1) / blockSize // plafoniranje
+	numBlocks := (totalSize + blockSize - 1) / blockSize
 
 	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0666)
 	HandleError(err, "Failed to open file")
@@ -464,17 +546,35 @@ func (bm *BlockManager) WriteNONMergeBloomFilter(bf *probabilistics.BloomFilter,
 			end = totalSize
 		}
 
-		_, err = file.Write(data[start:end])
-		HandleError(err, "Failed to write bloom filter to file")
+		var block []byte
+		if end-start < blockSize {
+			block = data[start:end] // Tačna veličina poslednjeg bloka
+		} else {
+			block = make([]byte, blockSize)
+			copy(block, data[start:end])
+		}
+
+		bb := &BufferBlock{
+			FileName:      "sstables-" + sstable + "-bloomfilter",
+			BlockNumber:   i,
+			Data:          block,
+			BlockSize:     uint32(len(block)), // sada imamo preciznu veličinu bloka
+			WrittenStatus: true,
+		}
+
+		bm.WriteBlock(filePath, bb)
+		bm.BufferPool.AddBlock(bb)
 	}
 
 	err = file.Sync()
 	HandleError(err, "Failed to sync file")
 }
 
-// funkcija koja kreira Metadata (merkle stablo) 
+
+// funkcija koja kreira Metadata (merkle stablo)
 // prolazi blokovski kroz data fajl i samo dodaje blokove
 // kasnije se stablo bilduje i serijalizuje
+// PADDING NIJE POTREBAN TAKODJE
 func (bm *BlockManager) CreateAndWriteNONMergeMetadata(dataPath string, metadataPath string) *trees.MerkleTree {
 
 	mt := trees.NewMerkleTree()
@@ -525,8 +625,18 @@ func (bm *BlockManager) CreateAndWriteNONMergeMetadata(dataPath string, metadata
 		block := make([]byte, blockSize)
 		copy(block, (*merkleBytes)[start:end])
 
-		_, err = file.Write(block)
-		HandleError(err, "Failed to write block to file")
+		// kreiramo novi blok i dodajemo u buffer pool
+		bb := &BufferBlock{
+			FileName:    "sstables-" + metadataPath + "-metadata",
+			BlockNumber: i,
+			Data:        block,
+			BlockSize:   blockSize,
+			
+			WrittenStatus: true,
+		}
+
+		bm.WriteBlock(metadataPath, bb)
+		bm.BufferPool.AddBlock(bb) // OBAVEZNO NA KRAJU DODAMO U BUFFER POOL!!!!!!!!
 	}
 
 	err = file.Sync()
@@ -535,46 +645,69 @@ func (bm *BlockManager) CreateAndWriteNONMergeMetadata(dataPath string, metadata
 	return mt
 }
 
-// funkcija koja čita flushed crcs iz fajla (binarni fajl, vrednost - newline - vrednost - newline... vrednosti uint32)
+// funkcija koja čita flushed crcs iz fajla, crcovi su popakovani jedan iza drugog binarno
+// BigEndian, uint32 (4 bajta)
 func (bm *BlockManager) ReadFlushedCRCs() {
-	data, err := os.ReadFile(FlushedCRCsPath)
-	HandleError(err, "Failed to read flushed CRCs file")
+	// pročitamo sve i splitujemo po 0 bajtu
+	// svaki crc je 4 bajta
+	// BigEndian
 
-	// čitamo bajtove do newline i parsiramo u uint32
-	// NAPOMENA: koristimo big endian
-	
+	// ako fajl ne postoji, pravimo novi
+	if _, err := os.Stat(FlushedCRCsPath); os.IsNotExist(err) {
+		_, err := os.Create(FlushedCRCsPath)
+		HandleError(err, "Failed to create file")
+	}
+
+	file, err := os.Open(FlushedCRCsPath)
+	HandleError(err, "Failed to open file")
+	defer file.Close()
+
+	// praznimo CRCList
+	bm.CRCList = make([]uint32, 0)
+
+	data := make([]byte, 4)
 	for {
-		index := bytes.IndexByte(data, '\n')
-		if index == -1 {
+		_, err = file.Read(data)
+		if err == io.EOF {
 			break
 		}
+		HandleError(err, "Failed to read from file")
 
-		crc := entry.BytesToUint32(data[:index])
-		if !bm.ContainsCRC(crc) {
-			bm.CRCList = append(bm.CRCList, crc)
-		}
+		crc := binary.BigEndian.Uint32(data)
+		bm.CRCList = append(bm.CRCList, crc)
 
-		data = data[index+1:]
+		_, err = file.Seek(1, io.SeekCurrent)
+		HandleError(err, "Failed to seek in file")
 	}
+
+	fmt.Println("CRCList: ", bm.CRCList)
 }
 
 // funkcija koja upisuje flushed crcs u fajl
 func (bm *BlockManager) WriteFlushedCRCs() {
-	// otvaramo fajl na putanji i praznimo ga, upisujemo sve crc-ove iz CRCList
-	file, err := os.OpenFile(FlushedCRCsPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
-	HandleError(err, "Failed to open flushed CRCs file")
+	// ideja je da upijemo sve crc-ove iz CRCList u fajl
+	// tako da imamo CRC pa 0 bajt, pa CRC pa 0 bajt...
+	// BigEndian, uint32 (4 bajta)
+
+	// kompletno brišemo fajl na putanji i kreiramo novi
+	file, err := os.Create(FlushedCRCsPath)
+	HandleError(err, "Failed to create file")
 	defer file.Close()
 
 	for _, crc := range bm.CRCList {
-		_, err = file.Write(entry.Uint32ToBytes(crc))
+		err = binary.Write(file, binary.BigEndian, crc)
 		HandleError(err, "Failed to write CRC to file")
-		_, err = file.Write([]byte("\n"))
-		HandleError(err, "Failed to write newline to file")
-	}
 
-	err = file.Sync()
-	HandleError(err, "Failed to sync file")
+		// upisujemo 0 bajt
+		_, err = file.Write([]byte{0})
+		HandleError(err, "Failed to write 0 byte to file")
+
+		err = file.Sync()
+		HandleError(err, "Failed to sync file")
+	}
 }
+
+
 
 
 // funkcija koja će da čisti zastarele wal fajlove
@@ -622,11 +755,11 @@ func (bm *BlockManager) DetectExpiredWals() {
 			if walName == files[len(files)-1].Name() {
 				break
 			}
-		
+
 			// upisujemo novi LowWatermark u config.json
 			// recimo wal_00015 -> LowWatermark = 15
 			num, _ := strconv.Atoi(walName[4:])
-			config.WriteLowWatermark(uint32(num)) 
+			config.WriteLowWatermark(uint32(num))
 
 			// brišemo CRC-ove iz CRCList za taj wal
 			for _, entry := range entries {
@@ -636,8 +769,14 @@ func (bm *BlockManager) DetectExpiredWals() {
 
 			// printujemo kako trenutno izgleda CRCList
 			fmt.Println("CRCList: ", bm.CRCList)
+
+			// upisujemo CRCList u fajl
+			bm.WriteFlushedCRCs()
 		}
 	}
+
+	// upisujemo CRCList u fajl
+	bm.WriteFlushedCRCs()
 }
 
 // funkcija koja proverava da li se CRC nalazi u CRCList
@@ -661,7 +800,7 @@ func (bm *BlockManager) RemoveCRC(crc uint32) {
 }
 
 // funkcija koja dodaje entrije u CRCList (dobijamo listu crc-ova koji su flushovani)
-// ulazna vrednost je lista entrija 
+// ulazna vrednost je lista entrija
 func (bm *BlockManager) AddCRCsToCRCList(entries []entry.Entry) {
 	for _, entry := range entries {
 		if !bm.ContainsCRC(entry.CRC) {

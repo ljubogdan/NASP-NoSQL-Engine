@@ -16,13 +16,24 @@
   "MEMTABLE": {
     "entries_per_table": 2,
     "number_of_tables": 2,
-    "structure": null
+    "structure": "map"
   },
   "SSTABLE": {
     "COMPACTION": false,
     "MERGE": false,
     "SSTABLE_MANAGER": {
       "capacity": 5
+    },
+    "SSTABLE_SUMMARY": {
+      "thinning": 5
+    }
+  },
+  "SYSTEM": {
+    "block_size": {
+      "default": 50,
+      "size_1": 4096,
+      "size_2": 8192,
+      "size_3": 16384
     }
   },
   "WAL": {
