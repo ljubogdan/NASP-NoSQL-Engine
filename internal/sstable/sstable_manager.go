@@ -2,11 +2,39 @@ package sstable
 
 import (
 	"log"
+	"NASP-NoSQL-Engine/internal/probabilistics"
+	"NASP-NoSQL-Engine/internal/trees"
 )
 
 const (
 	SSTablesPath = "../data/sstables/"
 )
+
+type IndexTuple struct {
+	Key             []byte
+	PositionInBlock uint32
+	BlockIndex      uint32
+}
+
+type SSTable struct {
+	SSTableName string // ime foldera u kome se nalaze svi fajlovi sstable-a
+	// merkle pointer      // poredimo korene ako valajju dalje ako ne valjaju moramo tačno locirati položaj
+	// bloom filter pointer
+	DataName          string
+	IndexName         string
+	SummaryName       string
+	MetadataName      string
+	BloomFilterName   string
+	BlockSizeFileName string
+	MergeName         string
+	TOCName           string
+
+	BloomFilter *probabilistics.BloomFilter
+	Metadata    *trees.MerkleTree
+
+	BlockSize uint32 // bitno samo prilikom kreiranja sstable-a, kasnije ove podatke čitamo iz fajla
+	Merge     bool
+}
 
 func HandleError(err error, msg string) {
 	if err != nil {

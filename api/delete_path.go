@@ -6,7 +6,6 @@ import (
 	"NASP-NoSQL-Engine/internal/encoded_entry"
 	"NASP-NoSQL-Engine/internal/entry"
 	"NASP-NoSQL-Engine/internal/memtable"
-	"NASP-NoSQL-Engine/internal/sstable"
 	"NASP-NoSQL-Engine/internal/wal"
 	"time"
 )
@@ -255,10 +254,10 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		encodedEntries = append(encodedEntries, encoded_entry.EncodeEntry(e))
 	}
 
-	sst := sstable.NewEmptySSTable() // sada biramo koji režim upisivanja u sstabelu radimo, merge ili standard
+	sst := dpo.BlockManager.NewEmptySSTable() // sada biramo koji režim upisivanja u sstabelu radimo, merge ili standard
 
 	// pravimo offsetes za index, odnosno listu od 3 para (key, position in block, block index) koja se kasnije prosledjuje createIndex metodi na obradu
-	indexTuples := make([]sstable.IndexTuple, 0)
+	indexTuples := make([]block_manager.IndexTuple, 0)
 
 	merge := sst.Merge
 
@@ -311,7 +310,7 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 				if positionInBlock+uint32(len(header)) <= sst.BlockSize {
 
 					if !indexTupleWritten {
-						indexTuples = append(indexTuples, sstable.IndexTuple{Key: e.Key, PositionInBlock: positionInBlock, BlockIndex: currentBlockIndex})
+						indexTuples = append(indexTuples, block_manager.IndexTuple{Key: e.Key, PositionInBlock: positionInBlock, BlockIndex: currentBlockIndex})
 						indexTupleWritten = true
 					}
 
@@ -386,11 +385,11 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		}
 
 		// kreiramo index i upisujemo ga u sstable
-		index := sstable.CreateNONMergeIndex(indexTuples, sst.BlockSize)    // znak pitanja da li treba da se pravi po blokovima ili sve odjednom...
+		index := dpo.BlockManager.CreateNONMergeIndex(indexTuples, sst.BlockSize)    // znak pitanja da li treba da se pravi po blokovima ili sve odjednom...
 		dpo.BlockManager.WriteNONMergeIndex(index, sst.SSTableName)
 
 		// sada kreiramo summary
-		summary := sstable.CreateNONMergeSummary(indexTuples)
+		summary := dpo.BlockManager.CreateNONMergeSummary(indexTuples)
 		dpo.BlockManager.WriteNONMergeSummary(summary, sst.SSTableName)
 
 		// potrebno je dodati elemente u bloom filter koji je već kreiran, samo ubacimo ključeve

@@ -1,18 +1,14 @@
-package sstable
+package block_manager
 
 import (
-	"NASP-NoSQL-Engine/internal/config"
-	"NASP-NoSQL-Engine/internal/entry"
 	"NASP-NoSQL-Engine/internal/probabilistics"
 	"NASP-NoSQL-Engine/internal/trees"
+	"NASP-NoSQL-Engine/internal/config"
+	"NASP-NoSQL-Engine/internal/entry"
 	"encoding/binary"
 	"fmt"
 	"os"
 	"strconv"
-)
-
-const (
-	ConfigPath = "../data/config.json"
 )
 
 type IndexTuple struct {
@@ -42,7 +38,7 @@ type SSTable struct {
 }
 
 // funkcija koja kreira novi prazan sstable i vraća pokazivač na njega
-func NewEmptySSTable() *SSTable {
+func (bm *BlockManager) NewEmptySSTable() *SSTable {
 
 	merge := config.ReadMerge()
 
@@ -66,7 +62,7 @@ func NewEmptySSTable() *SSTable {
 			HandleError(err, "Failed to create sstable folder")
 
 			// pravimo sve fajlove unutar tog foldera
-			CreateMergeFiles(sstableName)
+			bm.CreateMergeFiles(sstableName)
 
 		} else if len(folders) != 0 {
 			// ako postoji folder onda nalazimo poslednji folder i povećavamo indeks za 1 po principu walFile := fmt.Sprintf("wal_%05d", i)
@@ -78,7 +74,7 @@ func NewEmptySSTable() *SSTable {
 			HandleError(err, "Failed to create sstable folder")
 
 			// pravimo sve fajlove unutar tog foldera
-			CreateMergeFiles(sstableName)
+			bm.CreateMergeFiles(sstableName)
 		}
 
 		// u block size fajlu upisujemo sistemsku vrednost block_size
@@ -139,7 +135,7 @@ func NewEmptySSTable() *SSTable {
 			err := os.Mkdir(SSTablesPath+sstableName, 0755)
 			HandleError(err, "Failed to create sstable folder")
 
-			CreateStandardFiles(sstableName)
+			bm.CreateStandardFiles(sstableName)
 
 		} else if len(folders) != 0 {
 			lastFolder := folders[len(folders)-1].Name()
@@ -149,7 +145,7 @@ func NewEmptySSTable() *SSTable {
 			err = os.Mkdir(SSTablesPath+sstableName, 0755)
 			HandleError(err, "Failed to create sstable folder")
 
-			CreateStandardFiles(sstableName)
+			bm.CreateStandardFiles(sstableName)
 		}
 
 		blockSize := config.ReadBlockSize()
@@ -196,7 +192,7 @@ func NewEmptySSTable() *SSTable {
 	}
 }
 
-func CreateMergeFiles(sstableName string) {
+func (bm *BlockManager) CreateMergeFiles(sstableName string) {
 	_, err := os.Create(SSTablesPath + sstableName + "/data")
 	HandleError(err, "Failed to create data file")
 	_, err = os.Create(SSTablesPath + sstableName + "/blocksize")
@@ -207,7 +203,7 @@ func CreateMergeFiles(sstableName string) {
 	HandleError(err, "Failed to create toc file")
 }
 
-func CreateStandardFiles(sstableName string) {
+func (bm *BlockManager) CreateStandardFiles(sstableName string) {
 	_, err := os.Create(SSTablesPath + sstableName + "/data")
 	HandleError(err, "Failed to create data file")
 	_, err = os.Create(SSTablesPath + sstableName + "/index")
@@ -227,7 +223,7 @@ func CreateStandardFiles(sstableName string) {
 }
 
 // funkcija koja čita block size iz fajla na osnovu putanje
-func ReadBlockSizeFromFile(path string) uint32 {
+func (bm *BlockManager) ReadBlockSizeFromFile(path string) uint32 {
 	file, err := os.OpenFile(path, os.O_RDONLY, 0644)
 	HandleError(err, "Failed to open block size file")
 
@@ -239,7 +235,7 @@ func ReadBlockSizeFromFile(path string) uint32 {
 }
 
 // funkcija koja kreira Index na osnovu indexTuples, vraća niz bajtova
-func CreateNONMergeIndex(indexTuples []IndexTuple, blockSize uint32) []byte {
+func (bm *BlockManager) CreateNONMergeIndex(indexTuples []IndexTuple, blockSize uint32) []byte {
 	index := make([]byte, 0)
 
 	// pravi offset računamo tako što pomnožimo index bloka sa veličinom bloka
@@ -258,7 +254,7 @@ func CreateNONMergeIndex(indexTuples []IndexTuple, blockSize uint32) []byte {
 }
 
 // funkcija koja kreira Summary na osnovu indexTuples, vraća niz bajtova
-func CreateNONMergeSummary(indexTuples []IndexTuple) []byte {
+func (bm *BlockManager) CreateNONMergeSummary(indexTuples []IndexTuple) []byte {
 	summary := make([]byte, 0)
 
 	// čitamo kolika je proredjenost (e.g. 5 znači svaki 5. IndexTuple uzimamo)
