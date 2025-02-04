@@ -4,11 +4,18 @@ import (
 	"log"
 	"NASP-NoSQL-Engine/internal/probabilistics"
 	"NASP-NoSQL-Engine/internal/trees"
+	"NASP-NoSQL-Engine/internal/block_manager"
 )
 
 const (
 	SSTablesPath = "../data/sstables/"
 )
+
+type SSTableManager struct {
+	BlockManager *block_manager.BlockManager
+	Capacity uint32
+	List     []*SSTable
+}
 
 type IndexTuple struct {
 	Key             []byte
@@ -40,11 +47,6 @@ func HandleError(err error, msg string) {
 	if err != nil {
 		log.Fatalf("%s: %v", msg, err)
 	}
-}
-
-type SSTableManager struct {
-	Capacity uint32
-	List     []*SSTable
 }
 
 func NewSSTableManager() *SSTableManager {

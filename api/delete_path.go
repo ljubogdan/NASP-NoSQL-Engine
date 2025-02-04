@@ -6,20 +6,23 @@ import (
 	"NASP-NoSQL-Engine/internal/encoded_entry"
 	"NASP-NoSQL-Engine/internal/entry"
 	"NASP-NoSQL-Engine/internal/memtable"
+	"NASP-NoSQL-Engine/internal/sstable"
 	"NASP-NoSQL-Engine/internal/wal"
 	"time"
 )
 
 type DeletePath struct {
-	BlockManager *block_manager.BlockManager
-	WalManager  *wal.WalManager
+	BlockManager    *block_manager.BlockManager
+	SSTableManager  *sstable.SSTableManager
+	WalManager      *wal.WalManager
 	MemtableManager *memtable.MemtableManager
 }
 
-func NewDeletePath(blockManager *block_manager.BlockManager, walManager *wal.WalManager, memtableManager *memtable.MemtableManager) *DeletePath {
+func NewDeletePath(blockManager *block_manager.BlockManager, walManager *wal.WalManager, memtableManager *memtable.MemtableManager, sstableManager *sstable.SSTableManager) *DeletePath {
 	return &DeletePath{
-		BlockManager: blockManager,
-		WalManager:  walManager,
+		BlockManager:    blockManager,
+		SSTableManager:  sstableManager,
+		WalManager:      walManager,
 		MemtableManager: memtableManager,
 	}
 }
@@ -30,8 +33,8 @@ func (dpo *DeletePath) WriteEntryToWal(key string, value string) uint32 {
 	keySize := uint32(len(key))
 	valueSize := uint32(len(value))
 
-	blocksPerWal := dpo.WalManager.Wal.BlocksPerWAL                              // ispraviti kada se bude menjalo u configu
-	blockSize := config.ReadBlockSize()                                           // ispraviti kada se bude menjalo u configu
+	blocksPerWal := dpo.WalManager.Wal.BlocksPerWAL // ispraviti kada se bude menjalo u configu
+	blockSize := config.ReadBlockSize()             // ispraviti kada se bude menjalo u configu
 	walSize := uint32(blockSize * blocksPerWal)
 
 	if keySize+valueSize > (walSize - (blocksPerWal * minimalRequiredSize)) {
@@ -99,7 +102,9 @@ func (dpo *DeletePath) WriteEntryToWal(key string, value string) uint32 {
 
 	for e := walPoolCopy.Pool.Front(); e != nil; e = e.Next() {
 
-		if complete { break }
+		if complete {
+			break
+		}
 
 		if e.Value.(*block_manager.BufferBlock).BlockNumber == tempPositionInWalPool {
 
@@ -246,7 +251,6 @@ func (dpo *DeletePath) WriteEntryToWal(key string, value string) uint32 {
 	return 0
 }
 
-
 func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 	encodedEntries := make([]encoded_entry.EncodedEntry, 0) // za početak enkodiramo entrije za sstabelu
@@ -254,10 +258,10 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		encodedEntries = append(encodedEntries, encoded_entry.EncodeEntry(e))
 	}
 
-	sst := dpo.BlockManager.NewEmptySSTable() // sada biramo koji režim upisivanja u sstabelu radimo, merge ili standard
+	sst := dpo.SSTableManager.CreateSSTable() // sada biramo koji režim upisivanja u sstabelu radimo, merge ili standard
 
 	// pravimo offsetes za index, odnosno listu od 3 para (key, position in block, block index) koja se kasnije prosledjuje createIndex metodi na obradu
-	indexTuples := make([]block_manager.IndexTuple, 0)
+	indexTuples := make([]sstable.IndexTuple, 0)
 
 	merge := sst.Merge
 
@@ -282,7 +286,7 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 			indexTupleWritten := false // da li je index tuple upisan
 
-			typeArray := make([][2]uint32, 0) // pamti pozicije TYPE elemenata 
+			typeArray := make([][2]uint32, 0) // pamti pozicije TYPE elemenata
 
 			compactBytesWritten := uint32(0)
 			compactValueCurrentPosition := uint32(0)
@@ -291,7 +295,7 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 			timestampStart := crcStart + uint32(len(e.CRC))
 			tombstoneStart := timestampStart + uint32(len(e.Timestamp))
 			typeStart := tombstoneStart + uint32(len(e.Tombstone))
-			
+
 			header := make([]byte, 0) // pravimo header koji će se uvek upisivati
 			header = append(header, e.CRC...)
 			header = append(header, e.Timestamp...)
@@ -304,13 +308,13 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 			// izvršavamo dokle god ne bude complete, prave se novi blokovi i dodaju u buffer pool
 			for !complete {
-				bufferBlock := dpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName + "-" + "data", currentBlockIndex) // mora ime fajla odgovarati 
+				bufferBlock := dpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", currentBlockIndex) // mora ime fajla odgovarati
 
 				// provera da li od trenutne pozicije u bloku ima dovoljno mesta za header
 				if positionInBlock+uint32(len(header)) <= sst.BlockSize {
 
 					if !indexTupleWritten {
-						indexTuples = append(indexTuples, block_manager.IndexTuple{Key: e.Key, PositionInBlock: positionInBlock, BlockIndex: currentBlockIndex})
+						indexTuples = append(indexTuples, sstable.IndexTuple{Key: e.Key, PositionInBlock: positionInBlock, BlockIndex: currentBlockIndex})
 						indexTupleWritten = true
 					}
 
@@ -326,7 +330,7 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 					// pozovemo metodu koja upisuje blok u sstable i pravimo novi blok (NON-MERGE)
 					block := dpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", currentBlockIndex)
 
-					if !block.WrittenStatus {         // ako blok nije upisan, upisujemo ga
+					if !block.WrittenStatus { // ako blok nije upisan, upisujemo ga
 						dpo.BlockManager.WriteNONMergeBlock(block)
 					}
 
@@ -360,7 +364,7 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 							dpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[i][0]).Data[typeArray[i][1]] = 3
 						}
 					}
-				
+
 				} else {
 					block := dpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", currentBlockIndex)
 
@@ -385,11 +389,11 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		}
 
 		// kreiramo index i upisujemo ga u sstable
-		index := dpo.BlockManager.CreateNONMergeIndex(indexTuples, sst.BlockSize)    // znak pitanja da li treba da se pravi po blokovima ili sve odjednom...
+		index := dpo.SSTableManager.CreateNONMergeIndex(indexTuples, sst.BlockSize) // znak pitanja da li treba da se pravi po blokovima ili sve odjednom...
 		dpo.BlockManager.WriteNONMergeIndex(index, sst.SSTableName)
 
 		// sada kreiramo summary
-		summary := dpo.BlockManager.CreateNONMergeSummary(indexTuples)
+		summary := dpo.SSTableManager.CreateNONMergeSummary(indexTuples)
 		dpo.BlockManager.WriteNONMergeSummary(summary, sst.SSTableName)
 
 		// potrebno je dodati elemente u bloom filter koji je već kreiran, samo ubacimo ključeve
@@ -401,8 +405,8 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		dpo.BlockManager.WriteNONMergeBloomFilter(sst.BloomFilter, sst.SSTableName)
 
 		// sada je potrebno napraviti metadata (odnosno merkle stablo) i upisati ga u sstable
-		metadata := dpo.BlockManager.CreateAndWriteNONMergeMetadata(SSTablesPath + sst.SSTableName + "/" + sst.DataName, 
-			SSTablesPath + sst.SSTableName + "/" + sst.MetadataName)
+		metadata := dpo.BlockManager.CreateAndWriteNONMergeMetadata(SSTablesPath+sst.SSTableName+"/"+sst.DataName,
+			SSTablesPath+sst.SSTableName+"/"+sst.MetadataName)
 		sst.Metadata = metadata
 
 		// nastaviće se...
@@ -410,4 +414,3 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 	return 0
 }
-

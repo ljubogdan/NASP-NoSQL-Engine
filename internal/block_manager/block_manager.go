@@ -679,8 +679,6 @@ func (bm *BlockManager) ReadFlushedCRCs() {
 		_, err = file.Seek(1, io.SeekCurrent)
 		HandleError(err, "Failed to seek in file")
 	}
-
-	fmt.Println("CRCList: ", bm.CRCList)
 }
 
 // funkcija koja upisuje flushed crcs u fajl
@@ -764,11 +762,7 @@ func (bm *BlockManager) DetectExpiredWals() {
 			// brišemo CRC-ove iz CRCList za taj wal
 			for _, entry := range entries {
 				bm.RemoveCRC(entry.CRC)
-				fmt.Println("Removed CRC: ", entry.CRC)
 			}
-
-			// printujemo kako trenutno izgleda CRCList
-			fmt.Println("CRCList: ", bm.CRCList)
 
 			// upisujemo CRCList u fajl
 			bm.WriteFlushedCRCs()

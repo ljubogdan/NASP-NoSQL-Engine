@@ -32,18 +32,47 @@ func NewBTree(t int) *BTree {
 	return &BTree{root: nil, t: t}
 }
 
+/*
+	FIX ZA INPUT ODREĐEN
+*/
+
 func (node *BTreeNode) splitChild(i int, t int) {
+	if i >= len(node.children) {
+		fmt.Println("Ne možemo seći čvor.")
+		return
+	}
+
 	child := node.children[i]
+
+	if len(child.keys) < t {
+		fmt.Println("Ne možemo seći čvor.")
+		return
+	}
+
 	newChild := NewBTreeNode(t, child.isLeaf)
 
-	newChild.keys = append(newChild.keys, child.keys[t:]...)
-	newChild.values = append(newChild.values, child.values[t:]...)
-	child.keys = child.keys[:t-1]
-	child.values = child.values[:t-1]
+	// da li postoji dovoljno ključeva i dece pre sečenja
+	if len(child.keys) >= t {
+		newChild.keys = append(newChild.keys, child.keys[t:]...)
+		newChild.values = append(newChild.values, child.values[t:]...)
+		child.keys = child.keys[:t-1]
+		child.values = child.values[:t-1]
+	}
 
 	if !child.isLeaf {
-		newChild.children = append(newChild.children, child.children[t:]...)
-		child.children = child.children[:t]
+		if len(child.children) >= t {
+			newChild.children = append(newChild.children, child.children[t:]...)
+			child.children = child.children[:t]
+		} else {
+			fmt.Println("Fali dece za sečenje.")
+			return
+		}
+	}
+
+	// Provera da li možemo ubaciti novi čvor
+	if i+1 > len(node.children) {
+		fmt.Println("Ne možemo dodati novi čvor.")
+		return
 	}
 
 	node.children = append(node.children[:i+1], append([]*BTreeNode{newChild}, node.children[i+1:]...)...)

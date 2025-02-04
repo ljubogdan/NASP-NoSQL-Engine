@@ -2,6 +2,7 @@ package api
 
 import (
 	"NASP-NoSQL-Engine/internal/block_manager"
+	"NASP-NoSQL-Engine/internal/sstable"
 	"NASP-NoSQL-Engine/internal/config"
 	"NASP-NoSQL-Engine/internal/memtable"
 	"NASP-NoSQL-Engine/internal/wal"
@@ -54,13 +55,15 @@ func StartCLI() {
 	blockManager.ReadFlushedCRCs()
 	walManager := wal.NewWalManager()
 	memtableManager := memtable.NewMemtableManager()
+	sstableManager := sstable.NewSSTableManager()
+	sstableManager.BlockManager = blockManager
 
-	writePathObject := NewWritePath(blockManager, walManager, memtableManager)
+	writePathObject := NewWritePath(blockManager, walManager, memtableManager, sstableManager)
 	writePathObject.BlockManager.FillWalPool(writePathObject.WalManager.Wal.Path)
 
 	readPathObject := NewReadPath(blockManager, memtableManager)
 
-	deletePathObject := NewDeletePath(blockManager, walManager, memtableManager)
+	deletePathObject := NewDeletePath(blockManager, walManager, memtableManager, sstableManager)
 
 	entries := writePathObject.BlockManager.GetEntriesFromLeftoverWals()
 	for _, entry := range entries {
@@ -100,7 +103,7 @@ func StartCLI() {
 		case "2\n":
 			returnValue = handleGet(readPathObject)
 		case "3\n":
-			returnValue = handleDelete(deletePathObject, writePathObject)
+			returnValue = handleDelete(deletePathObject)
 		case "4\n":
 			settings()
 		case "5\n":
@@ -169,7 +172,7 @@ func handleGet(rpo *ReadPath) uint32 {
 	return 5
 }
 
-func handleDelete(dpo *DeletePath, wpo *WritePath) uint32 {
+func handleDelete(dpo *DeletePath) uint32 {
 	fmt.Print(bold + "\n➤ Enter key: " + reset)
 	reader := bufio.NewReader(os.Stdin)
 	key, _ := reader.ReadString('\n')
@@ -185,8 +188,7 @@ func handleDelete(dpo *DeletePath, wpo *WritePath) uint32 {
 		entries := dpo.MemtableManager.Delete(key)
 		
 		if len(*entries) > 0 {
-			fmt.Println(entries)
-			returnValue = wpo.WriteEntriesToSSTable(entries)
+			returnValue = dpo.WriteEntriesToSSTable(entries)
 			return returnValue
 		}
 	}

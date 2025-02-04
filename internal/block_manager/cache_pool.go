@@ -37,11 +37,18 @@ func NewCachePool() *CachePool {
 // dodavanje elementa u keš
 func (pool *CachePool) Add(cacheEntry *CacheEntry) {
 
-	if uint32(pool.List.Len()) == pool.Capacity {
-		// izbacujemo najmanje korišćeni element
+	// pre nego što ubacimo element proverimo da li postoje zastarele verzije podatka sa istim ključem
+	// i obrišemo ih
+	if element, ok := pool.Cache[cacheEntry.Key]; ok {
+		pool.List.Remove(element)
+		delete(pool.Cache, cacheEntry.Key)
+	}
+
+	// ako je keš pun, uklonimo LeastUsed element
+	if uint32(pool.List.Len()) >= pool.Capacity {
 		pool.RemoveLeastUsed()
 	}
-	// dodajemo novi element
+
 	element := pool.List.PushFront(cacheEntry)
 	pool.Cache[cacheEntry.Key] = element
 }
@@ -73,4 +80,3 @@ func (pool *CachePool) Delete(key string) {
 		pool.List.Remove(element)
 	}
 }
-

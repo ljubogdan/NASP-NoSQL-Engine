@@ -1,0 +1,25 @@
+OPIS SSTABELE - VAŽNO
+======================
+
+1. BlockSize
+    - 4 bajta veličina bloka
+2. BloomFilter
+    - blokovski upis
+    - NEMA PADDINGA na ZADNJEM BLOKU
+3. Data 
+    - blokovski upis
+    - PADDING na SVAKOM BLOKU (WAL sistem)
+4. Index
+    - blokovski upis
+    - PADDING na ZADNJEM BLOKU
+5. Merge
+    - "true" string ako je Merge
+    - "false" string ako nije Merge
+6. Metadata
+    - blokovski upis
+    - PADDING na ZADNJEM BLOKU
+7. Summary
+    - blokovski upis
+    - PADDING na ZADNJEM BLOKU
+8. TOC
+    - spisak svih fajlova
