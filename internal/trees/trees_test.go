@@ -20,7 +20,8 @@ func TestMerkleTree(t *testing.T) {
 	mt2.AddBlock(&[]byte{0x01, 0x02, 0x03, 0x02})
 	mt2.Build()
 
-	mt3 := Deserialize_MT(mt1.Serialize())
+	serialized := append((*(mt1.Serialize()))[:], make([]byte, 33)...)
+	mt3 := Deserialize_MT(&serialized)
 
 	blocks := [][]byte{
 		{0x01, 0x02, 0x03, 0x12},

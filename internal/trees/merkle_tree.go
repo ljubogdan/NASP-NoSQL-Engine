@@ -2,6 +2,7 @@ package trees
 
 import (
 	"crypto/sha256"
+	"fmt"
 	"sync"
 )
 
@@ -192,23 +193,35 @@ func (merkle *MerkleTree) Serialize() *[]byte {
 }
 
 func Deserialize_MT(data *[]byte) *MerkleTree {
-	blockCount := len(*data) / 32
-	hashCount := blockCount
-	height := 0
-	for bpl := blockCount; bpl > 0; bpl /= 2 {
-		height++
-		bpl++
-		if bpl == 2 {
-			break
+	if len(*data) >= 32 {
+		blockCount := 0
+		for i := 0; blockCount*32+i < len(*data) && i <= 32; blockCount++ {
+			for i = 0; blockCount*32+i < len(*data) && (*data)[blockCount*32+i] == 0 && i <= 32; i++ {
+
+			}
 		}
-		hashCount += bpl / 2
+		blockCount--
+		fmt.Println(blockCount)
+
+		hashCount := blockCount
+		height := 0
+		for bpl := blockCount; bpl > 0; bpl /= 2 {
+			height++
+			bpl++
+			if bpl == 2 {
+				break
+			}
+			hashCount += bpl / 2
+		}
+
+		merkle := &MerkleTree{hashes: make([]byte, hashCount*32), levelIndexes: make([]uint16, height)}
+		for i := 0; i < blockCount*32; i++ {
+			merkle.hashes[(hashCount-blockCount)*32+i] = (*data)[i]
+		}
+
+		merkle.generateTree(hashCount, blockCount, height)
+		return merkle
 	}
 
-	merkle := &MerkleTree{hashes: make([]byte, hashCount*32), levelIndexes: make([]uint16, height)}
-	for i := 0; i < blockCount*32; i++ {
-		merkle.hashes[(hashCount-blockCount)*32+i] = (*data)[i]
-	}
-
-	merkle.generateTree(hashCount, blockCount, height)
-	return merkle
+	return NewMerkleTree()
 }
