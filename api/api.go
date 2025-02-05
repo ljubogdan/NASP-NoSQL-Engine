@@ -29,6 +29,7 @@ func clearTerminal() {
 	cmd.Run()
 }
 
+
 func message(returnValue uint32) {
 	switch returnValue {
 	case 0:
@@ -49,6 +50,10 @@ func message(returnValue uint32) {
 }
 
 func StartCLI() {
+
+	// ================================================================================================= BITNA FUNKCIJA
+	config.CorrectLowWatermark()
+	// ================================================================================================= BITNA FUNKCIJA
 
 	blockManager := block_manager.NewBlockManager()
 

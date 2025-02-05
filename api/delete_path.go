@@ -393,7 +393,7 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		dpo.BlockManager.WriteNONMergeIndex(index, sst.SSTableName)
 
 		// sada kreiramo summary
-		summary := dpo.SSTableManager.CreateNONMergeSummary(indexTuples)
+		summary := dpo.SSTableManager.CreateNONMergeSummary(indexTuples, index)
 		dpo.BlockManager.WriteNONMergeSummary(summary, sst.SSTableName)
 
 		// potrebno je dodati elemente u bloom filter koji je već kreiran, samo ubacimo ključeve

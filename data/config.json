@@ -14,7 +14,7 @@
     "max_value_size": 200
   },
   "MEMTABLE": {
-    "entries_per_table": 2,
+    "entries_per_table": 9,
     "number_of_tables": 2,
     "structure": "map"
   },
@@ -25,7 +25,7 @@
       "capacity": 5
     },
     "SSTABLE_SUMMARY": {
-      "thinning": 5
+      "thinning": 2
     }
   },
   "SYSTEM": {
@@ -38,7 +38,7 @@
   },
   "WAL": {
     "blocks_per_wal": 5,
-    "low_watermark": 100000
+    "low_watermark": 0
   },
   "WAL_POOL": {
     "capacity": 5

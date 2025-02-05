@@ -421,7 +421,7 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		wpo.BlockManager.WriteNONMergeIndex(index, sst.SSTableName)
 
 		// sada kreiramo summary
-		summary := wpo.SSTableManager.CreateNONMergeSummary(indexTuples)
+		summary := wpo.SSTableManager.CreateNONMergeSummary(indexTuples, index)
 		wpo.BlockManager.WriteNONMergeSummary(summary, sst.SSTableName)
 
 		// potrebno je dodati elemente u bloom filter koji je već kreiran, samo ubacimo ključeve

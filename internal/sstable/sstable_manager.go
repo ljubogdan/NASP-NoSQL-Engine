@@ -1,12 +1,13 @@
 package sstable
 
 import (
-	"log"
+	"NASP-NoSQL-Engine/internal/block_manager"
+	"NASP-NoSQL-Engine/internal/config"
+	"NASP-NoSQL-Engine/internal/entry"
 	"NASP-NoSQL-Engine/internal/probabilistics"
 	"NASP-NoSQL-Engine/internal/trees"
-	"NASP-NoSQL-Engine/internal/block_manager"
-	"NASP-NoSQL-Engine/internal/entry"
-	"NASP-NoSQL-Engine/internal/config"
+	"fmt"
+	"log"
 )
 
 const (
@@ -86,14 +87,21 @@ func (sstm *SSTableManager) CreateNONMergeIndex(indexTuples []IndexTuple, blockS
 		index = append(index, []byte(it.Key)...)
 		index = append(index, 0)
 		index = append(index, entry.Uint32ToBytes(offset)...)
-		index = append(index, 10)
+		
+		// dodajemo newline karakter
+		// nakon zadnjeg index tuple-a ne dodajemo newline karakter
+		
+		if string(it.Key) != string(indexTuples[len(indexTuples)-1].Key) {
+			index = append(index, 10)
+		}
+
 	}
 
 	return index
 }
 
-// funkcija koja kreira Summary na osnovu indexTuples, vraća niz bajtova
-func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple) []byte {
+// funkcija koja kreira Summary na osnovu indexa, vraća niz bajtova
+func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple, index []byte) []byte {
 	summary := make([]byte, 0)
 
 	// čitamo kolika je proredjenost (e.g. 5 znači svaki 5. IndexTuple uzimamo)
@@ -119,13 +127,50 @@ func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple) []by
 	summary = append(summary, []byte(keys[len(keys)-1])...)
 	summary = append(summary, 10)
 
-	// prolazimo kroz listu indexTuples i upisujemo ključeve i pozicije u bloku
-	for i := 0; i < len(indexTuples); i += int(thinning) {
-		summary = append(summary, []byte(indexTuples[i].Key)...)
-		summary = append(summary, 0)
-		summary = append(summary, entry.Uint32ToBytes(indexTuples[i].PositionInBlock)...)
-		summary = append(summary, 10)
-	}
+	// ideja je da na osnovu index strukture napravimo summary npr.
+	// INDEX
+	/*
+		ključ1 -> offset1
+		ključ2 -> offset2
+		ključ3 -> offset3
+		ključ4 -> offset4
+	*/
+	// SUMMARY
+	/*
+		ključ1 -> offset1 (ali ne offset1 prekopiran iz indexa, nego offset na kom bajtu počinje ključ1 u indexu, ne u data)
+		ključ4 (npr za thinning 3) -> offset2 (ali ne offset2 prekopiran iz indexa, nego offset na kom bajtu počinje ključ4 u indexu, ne u data)
+	*/
+	// dakle, summary treba da sadrži ključeve i offsete na kojima se ti ključevi nalaze u indexu
+
+	// prolazimo kroz index i upisujemo ključeve i offsete
+	// index je niz bajtova, prodjemo kroz index 
+
+	//bytesPassed - updatuje se stalno, to će nam biti offseti u summary-ju
+	// prolazimo kroz bajtove, sabiramo ih na bytes passed i kada prodjemo onoliko newline karaktera koliko je thinning, upisujemo ključ i offset (bytes passed)
+	// za početak odmah upisujemo prvi ključ i offset 0
+	summary = append(summary, []byte(keys[0])...)
+	summary = append(summary, 0)
+	summary = append(summary, entry.Uint32ToBytes(0)...)
+	summary = append(summary, 10)
+
+	currentKeyIndex := 0
+	newlinesPassed := 0
+
+	for bytesPassed := 0; bytesPassed < len(index); bytesPassed++ {
+		
+		if index[bytesPassed] == 10 { // ako je null bajt
+			newlinesPassed++
+			currentKeyIndex++
+		}
+
+		if newlinesPassed == int(thinning) {
+			summary = append(summary, []byte(keys[currentKeyIndex])...)
+			summary = append(summary, 0)
+			summary = append(summary, entry.Uint32ToBytes(uint32(bytesPassed + 1))...) // brojimo bajtove od 0 zato je plus 1
+			summary = append(summary, 10) // za razliku od indexa, ovde svaki red ima newline karakter na kraju (čak i poslednji)
+			newlinesPassed = 0
+		}
+	}	
 
 	return summary
 }

@@ -16,6 +16,17 @@ func HandleError(err error, msg string) {
 	}
 }
 
+// ============================================================================= BITNA FUNKCIJA
+func CorrectLowWatermark() { // ideja je ako u wals folderu ima 0 walova (nakon testiranja) da postavimo low watermark na 100000 (neutralna vrednost)
+	files, err := os.ReadDir("../data/wals")
+	HandleError(err, "Failed to read wals directory")
+
+	if len(files) == 0 {
+		WriteLowWatermark(100000)
+	}
+}
+// ============================================================================= BITNA FUNKCIJA
+
 func ReadBlockSize() uint32 {
 	data, err := os.ReadFile(ConfigPath)
 	HandleError(err, "Failed to read config file")
