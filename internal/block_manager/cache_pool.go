@@ -80,3 +80,14 @@ func (pool *CachePool) Delete(key string) {
 		pool.List.Remove(element)
 	}
 }
+
+// funkcionalnost koja se koristi za put i delete operaciju
+// a to je da se updatuje vrednost u kešu samo ako je element već u kešu
+func (pool *CachePool) UpdateIfPresent(key string, value []byte) {
+	// getujemo element iz keša koristeći funkciju Get
+	// vremenska složenost je O(1) jer koristimo mapu
+	present := pool.Get(key)
+	if present != nil {
+		present.Value = value
+	}
+}

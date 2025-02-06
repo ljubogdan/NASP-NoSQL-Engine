@@ -10,16 +10,12 @@ package block_manager
 type CacheEntry struct {
 	Key        string
 	Value      []byte
-	Filename   string
-	BlockIndex uint32
 }
 
 // NewCacheEntry kreira novi CacheEntry
-func NewCacheEntry(key string, value []byte, filename string, blockIndex uint32) *CacheEntry {
+func NewCacheEntry(key string, value []byte) *CacheEntry {
 	return &CacheEntry{
 		Key:        key,
 		Value:      value,
-		Filename:   filename,
-		BlockIndex: blockIndex,
 	}
 }

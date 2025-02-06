@@ -2,9 +2,9 @@ package api
 
 import (
 	"NASP-NoSQL-Engine/internal/block_manager"
-	"NASP-NoSQL-Engine/internal/sstable"
 	"NASP-NoSQL-Engine/internal/config"
 	"NASP-NoSQL-Engine/internal/memtable"
+	"NASP-NoSQL-Engine/internal/sstable"
 	"NASP-NoSQL-Engine/internal/wal"
 	"bufio"
 	"fmt"
@@ -28,7 +28,6 @@ func clearTerminal() {
 	cmd.Stdout = os.Stdout
 	cmd.Run()
 }
-
 
 func message(returnValue uint32) {
 	switch returnValue {
@@ -85,7 +84,7 @@ func StartCLI() {
 		walManager.DeleteOldWals()
 		// =================================================================================================
 
-		//clearTerminal()                    
+		//clearTerminal()
 		fmt.Println("\n" + bold + blue + "════════════════════════" + reset)
 		fmt.Println(bold + green + "\nChoose an option:" + reset)
 		fmt.Println("\n" + yellow + "1. PUT (key, value)" + reset)
@@ -151,9 +150,11 @@ func handlePut(wpo *WritePath) uint32 {
 			wpo.BlockManager.WriteFlushedCRCs()
 
 			returnValue = wpo.WriteEntriesToSSTable(entries)
-			return returnValue
 		}
 	}
+
+	// ako je entry prisutan u kešu samo se apdejtuje
+	wpo.BlockManager.CachePool.UpdateIfPresent(key, []byte(value))
 
 	return returnValue
 }
@@ -188,15 +189,20 @@ func handleDelete(dpo *DeletePath) uint32 {
 		return 1
 	}
 
-	returnValue := dpo.WriteEntryToWal(key, "") 
+	returnValue := dpo.WriteEntryToWal(key, "")
 	if returnValue == 0 {
 		entries := dpo.MemtableManager.Delete(key)
-		
+
 		if len(*entries) > 0 {
+			dpo.BlockManager.AddCRCsToCRCList(*entries)
+			dpo.BlockManager.WriteFlushedCRCs()
+
 			returnValue = dpo.WriteEntriesToSSTable(entries)
-			return returnValue
 		}
 	}
+
+	// ako je entry prisutan u kešu samo se apdejtuje
+	dpo.BlockManager.CachePool.UpdateIfPresent(key, []byte("")) // alternativno dpo.BlockManager.CachePool.Delete(key)
 
 	return returnValue
 }

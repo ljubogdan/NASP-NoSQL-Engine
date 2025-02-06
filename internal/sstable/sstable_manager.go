@@ -6,7 +6,6 @@ import (
 	"NASP-NoSQL-Engine/internal/entry"
 	"NASP-NoSQL-Engine/internal/probabilistics"
 	"NASP-NoSQL-Engine/internal/trees"
-	"fmt"
 	"log"
 )
 
@@ -16,8 +15,8 @@ const (
 
 type SSTableManager struct {
 	BlockManager *block_manager.BlockManager
-	Capacity uint32
-	List     []*SSTable
+	Capacity     uint32
+	List         []*SSTable
 }
 
 type IndexTuple struct {
@@ -56,7 +55,6 @@ func NewSSTableManager() *SSTableManager {
 	return &SSTableManager{List: make([]*SSTable, 0)}
 }
 
-
 func (manager *SSTableManager) AddSSTable(sstable *SSTable) {
 	// LRU algoritam za izbacivanje, do kapaciteta punimo
 	if uint32(len(manager.List)) == manager.Capacity {
@@ -65,7 +63,7 @@ func (manager *SSTableManager) AddSSTable(sstable *SSTable) {
 	manager.List = append(manager.List, sstable)
 }
 
-func (manager *SSTableManager) Get(filename string) *SSTable {    // vraća sstable po imenu npr "sstable_00003"
+func (manager *SSTableManager) Get(filename string) *SSTable { // vraća sstable po imenu npr "sstable_00003"
 	for _, sstable := range manager.List {
 		if sstable.SSTableName == filename {
 			return sstable
@@ -87,10 +85,10 @@ func (sstm *SSTableManager) CreateNONMergeIndex(indexTuples []IndexTuple, blockS
 		index = append(index, []byte(it.Key)...)
 		index = append(index, 0)
 		index = append(index, entry.Uint32ToBytes(offset)...)
-		
+
 		// dodajemo newline karakter
 		// nakon zadnjeg index tuple-a ne dodajemo newline karakter
-		
+
 		if string(it.Key) != string(indexTuples[len(indexTuples)-1].Key) {
 			index = append(index, 10)
 		}
@@ -143,7 +141,7 @@ func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple, inde
 	// dakle, summary treba da sadrži ključeve i offsete na kojima se ti ključevi nalaze u indexu
 
 	// prolazimo kroz index i upisujemo ključeve i offsete
-	// index je niz bajtova, prodjemo kroz index 
+	// index je niz bajtova, prodjemo kroz index
 
 	//bytesPassed - updatuje se stalno, to će nam biti offseti u summary-ju
 	// prolazimo kroz bajtove, sabiramo ih na bytes passed i kada prodjemo onoliko newline karaktera koliko je thinning, upisujemo ključ i offset (bytes passed)
@@ -157,7 +155,7 @@ func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple, inde
 	newlinesPassed := 0
 
 	for bytesPassed := 0; bytesPassed < len(index); bytesPassed++ {
-		
+
 		if index[bytesPassed] == 10 { // ako je null bajt
 			newlinesPassed++
 			currentKeyIndex++
@@ -166,11 +164,11 @@ func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple, inde
 		if newlinesPassed == int(thinning) {
 			summary = append(summary, []byte(keys[currentKeyIndex])...)
 			summary = append(summary, 0)
-			summary = append(summary, entry.Uint32ToBytes(uint32(bytesPassed + 1))...) // brojimo bajtove od 0 zato je plus 1
-			summary = append(summary, 10) // za razliku od indexa, ovde svaki red ima newline karakter na kraju (čak i poslednji)
+			summary = append(summary, entry.Uint32ToBytes(uint32(bytesPassed+1))...) // brojimo bajtove od 0 zato je plus 1
+			summary = append(summary, 10)                                            // za razliku od indexa, ovde svaki red ima newline karakter na kraju (čak i poslednji)
 			newlinesPassed = 0
 		}
-	}	
+	}
 
 	return summary
 }

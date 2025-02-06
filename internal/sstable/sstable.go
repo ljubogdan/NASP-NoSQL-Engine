@@ -79,7 +79,6 @@ func (sstm *SSTableManager) CreateSSTable() *SSTable {
 
 		folders, err := os.ReadDir(SSTablesPath)
 		HandleError(err, "Failed to read sstables folder")
-		fmt.Println(folders)
 
 		sstableName := ""
 
