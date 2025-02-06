@@ -32,52 +32,46 @@ func NewBTree(t int) *BTree {
 	return &BTree{root: nil, t: t}
 }
 
-/*
-	FIX ZA INPUT ODREĐEN
-*/
-
 func (node *BTreeNode) splitChild(i int, t int) {
-	if i >= len(node.children) {
-		fmt.Println("Ne možemo seći čvor.")
+	if node.isLeaf {
+		// fmt.Println("pokušaj deljenja list čvora!")
+		return
+	}
+
+	if i < 0 || i >= len(node.children) {
+		// fmt.Printf("indeks %d je van opsega, children count: %d\n", i, len(node.children))
+		return
+	}
+
+	if len(node.children) == 0 {
+		// fmt.Println("pokušaj deljenja čvora koji nema decu!")
 		return
 	}
 
 	child := node.children[i]
 
-	if len(child.keys) < t {
-		fmt.Println("Ne možemo seći čvor.")
+	if len(child.keys) < 2*t-1 {
+		// fmt.Printf("nedovoljno ključeva za sečenje, očekivano: %d, trenutno: %d\n", 2*t-1, len(child.keys))
 		return
 	}
 
 	newChild := NewBTreeNode(t, child.isLeaf)
+	middleKey := child.keys[t-1]
+	middleValue := child.values[t-1]
 
-	// da li postoji dovoljno ključeva i dece pre sečenja
-	if len(child.keys) >= t {
-		newChild.keys = append(newChild.keys, child.keys[t:]...)
-		newChild.values = append(newChild.values, child.values[t:]...)
-		child.keys = child.keys[:t-1]
-		child.values = child.values[:t-1]
-	}
+	newChild.keys = append(newChild.keys, child.keys[t:]...)
+	newChild.values = append(newChild.values, child.values[t:]...)
+	child.keys = child.keys[:t-1]
+	child.values = child.values[:t-1]
 
 	if !child.isLeaf {
-		if len(child.children) >= t {
-			newChild.children = append(newChild.children, child.children[t:]...)
-			child.children = child.children[:t]
-		} else {
-			fmt.Println("Fali dece za sečenje.")
-			return
-		}
-	}
-
-	// Provera da li možemo ubaciti novi čvor
-	if i+1 > len(node.children) {
-		fmt.Println("Ne možemo dodati novi čvor.")
-		return
+		newChild.children = append(newChild.children, child.children[t:]...)
+		child.children = child.children[:t]
 	}
 
 	node.children = append(node.children[:i+1], append([]*BTreeNode{newChild}, node.children[i+1:]...)...)
-	node.keys = append(node.keys[:i], append([]string{child.keys[t-1]}, node.keys[i:]...)...)
-	node.values = append(node.values[:i], append([]entry.Entry{child.values[t-1]}, node.values[i:]...)...)
+	node.keys = append(node.keys[:i], append([]string{middleKey}, node.keys[i:]...)...)
+	node.values = append(node.values[:i], append([]entry.Entry{middleValue}, node.values[i:]...)...)
 }
 
 func (node *BTreeNode) insertNonFull(k string, v entry.Entry) {
@@ -117,29 +111,34 @@ func (node *BTreeNode) insertNonFull(k string, v entry.Entry) {
 
 func (tree *BTree) Insert(data entry.Entry) {
 	k := data.Key
+
 	if tree.root == nil {
+		// fmt.Println("inicijalizacija korena stabla...")
 		tree.root = NewBTreeNode(tree.t, true)
 		tree.root.keys = append(tree.root.keys, k)
 		tree.root.values = append(tree.root.values, data)
-	} else {
-		if _, found := tree.Get(k); found {
-			tree.root.insertNonFull(k, data)
-			return
+		return
+	}
+
+	if len(tree.root.keys) == 2*tree.t-1 {
+		// fmt.Println("korenski čvor pun, delimo ga...")
+
+		newRoot := NewBTreeNode(tree.t, false)
+
+		newRoot.children = append(newRoot.children, tree.root)
+
+		newRoot.splitChild(0, tree.t)
+
+		i := 0
+		if newRoot.keys[0] < k {
+			i++
 		}
 
-		if len(tree.root.keys) == 2*tree.t-1 {
-			newRoot := NewBTreeNode(tree.t, false)
-			newRoot.children = append(newRoot.children, tree.root)
-			newRoot.splitChild(0, tree.t)
-			i := 0
-			if newRoot.keys[0] < k {
-				i++
-			}
-			newRoot.children[i].insertNonFull(k, data)
-			tree.root = newRoot
-		} else {
-			tree.root.insertNonFull(k, data)
-		}
+		newRoot.children[i].insertNonFull(k, data)
+
+		tree.root = newRoot
+	} else {
+		tree.root.insertNonFull(k, data)
 	}
 }
 
