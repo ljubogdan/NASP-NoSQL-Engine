@@ -38,7 +38,7 @@
   },
   "WAL": {
     "blocks_per_wal": 5,
-    "low_watermark": 1
+    "low_watermark": 11
   },
   "WAL_POOL": {
     "capacity": 5

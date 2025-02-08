@@ -397,10 +397,14 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 					if len(typeArray) == 1 {
 						wpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[0][0]).Data[typeArray[0][1]] = 1
 					} else {
-						wpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[0][0]).Data[typeArray[0][1]] = 2
+						block := wpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[0][0])
+						block.Data[typeArray[0][1]] = 2	                         // miljan fixx
+						wpo.BlockManager.WriteNONMergeBlock(block)
 						wpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[len(typeArray)-1][0]).Data[typeArray[len(typeArray)-1][1]] = 4
 						for i := 1; i < len(typeArray)-1; i++ {
-							wpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[i][0]).Data[typeArray[i][1]] = 3
+							block := wpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[i][0])
+							block.Data[typeArray[i][1]] = 3	                         // miljan fixx
+							wpo.BlockManager.WriteNONMergeBlock(block)
 						}
 					}
 

@@ -90,13 +90,7 @@ func (sstm *SSTableManager) CreateNONMergeIndex(indexTuples []IndexTuple, blockS
 		index = append(index, it.Key...)
 		index = append(index, 0)
 		index = append(index, encoded_entry.Uint32toVarint(offset)...)
-
-		// dodajemo newline karakter
-		// nakon zadnjeg index tuple-a ne dodajemo newline karakter
-
-		if string(it.Key) != string(indexTuples[len(indexTuples)-1].Key) {
-			index = append(index, 10)
-		}
+		index = append(index, 10)
 
 	}
 
@@ -158,12 +152,8 @@ func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple, inde
 	//bytesPassed - updatuje se stalno, to će nam biti offseti u summary-ju
 	// prolazimo kroz bajtove, sabiramo ih na bytes passed i kada prodjemo onoliko newline karaktera koliko je thinning, upisujemo ključ i offset (bytes passed)
 	// za početak odmah upisujemo prvi ključ i offset 0
-	summary = append(summary, encoded_entry.Uint32toVarint(sstm.BlockManager.BidirectionalMap.GetByString(keys[0]))...)
-	summary = append(summary, 0)
-	summary = append(summary, encoded_entry.Uint32toVarint(uint32(0))...)
-	summary = append(summary, 10)
 
-	newlinesPassed := 0
+	newlinesPassed := thinning - 1
 
 	/*
 	for bytesPassed := 0; bytesPassed < len(*index); bytesPassed++ {
@@ -213,13 +203,14 @@ func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple, inde
 		// preskačemo newline karakter
 		newline := encoded_entry.ReadVarint((*index)[bytesPassed:])
 		bytesPassed += len(newline)
-		newlinesPassed++
 		fmt.Println("Newline: ", newline)
 
-		if newlinesPassed == int(thinning+1) { // jer smo već pročitali ključ i offset...
+		newlinesPassed++
+
+		if newlinesPassed == thinning  { // jer smo već pročitali ključ i offset...
 			summary = append(summary, key...)
 			summary = append(summary, terminator...)
-			summary = append(summary, encoded_entry.Uint32toVarint(uint32(bytesPassed))...)
+			summary = append(summary, encoded_entry.Uint32toVarint(uint32(bytesPassed - len(key) - len(offset) - len(newline) - len(terminator)))...)
 			summary = append(summary, newline...) 
 			newlinesPassed = 0
 		}

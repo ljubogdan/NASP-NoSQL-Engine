@@ -62,6 +62,7 @@ func (mt *Memtable) Put(key string, value []byte) {
 		ValueSize: uint64(len(value)),
 		Tombstone: byte(0),
 		Timestamp: uint64(time.Now().Unix()),
+		Type: byte(1),
 		CRC: uint32(entry.CRC32(append([]byte(key), value...))),
 	})
 }
