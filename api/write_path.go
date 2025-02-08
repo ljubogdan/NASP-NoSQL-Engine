@@ -282,9 +282,20 @@ func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 	encodedEntries := make([]encoded_entry.EncodedEntry, 0) // za početak enkodiramo entrije za sstabelu
+
+	// ============================================================================================================ BITNA FUNKCIJA
+	wpo.BlockManager.ReadBidirectionalMapFromFile()
+	// ============================================================================================================ BITNA FUNKCIJA
+
 	for _, e := range *entries {
-		encodedEntries = append(encodedEntries, encoded_entry.EncodeEntry(e))
+		// ubacujemo ključeve u bidirekcioni map i uzimamo kompresovanu numeričku vrednost
+		globalValue := wpo.BlockManager.BidirectionalMap.Add(e.Key)
+		encodedEntries = append(encodedEntries, encoded_entry.EncodeEntry(e, globalValue))
 	}
+
+	// ============================================================================================================ BITNA FUNKCIJA
+	wpo.BlockManager.WriteBidirectionalMapToFile()
+	// ============================================================================================================ BITNA FUNKCIJA
 
 	sst := wpo.SSTableManager.CreateSSTable() // sada biramo koji režim upisivanja u sstabelu radimo, merge ili standard
 
@@ -418,7 +429,7 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 		// kreiramo index i upisujemo ga u sstable
 		index := wpo.SSTableManager.CreateNONMergeIndex(indexTuples, sst.BlockSize) // znak pitanja da li treba da se pravi po blokovima ili sve odjednom...
-		wpo.BlockManager.WriteNONMergeIndex(index, sst.SSTableName)
+		wpo.BlockManager.WriteNONMergeIndex(*index, sst.SSTableName)
 
 		// sada kreiramo summary
 		summary := wpo.SSTableManager.CreateNONMergeSummary(indexTuples, index)

@@ -274,9 +274,6 @@ func ConstructEntryFromPartialEntries(partialEntries [][]byte) entry.Entry {
 	valueSize := entry.BytesToUint64(partialEntries[0][entry.VALUE_SIZE_START:entry.KEY_START])
 
 	// izračunamo pre uklanjanja headera crc, timestamp, tombstone, type...
-	entrySize := uint32(entry.CRC_SIZE + entry.TIMESTAMP_SIZE + entry.TOMBSTONE_SIZE + entry.TYPE_SIZE + entry.KEY_SIZE_SIZE + entry.VALUE_SIZE_SIZE + keySize + valueSize)
-
-	crc32 := uint32(entry.CRC32(partialEntries[0][entry.CRC_START : entry.TIMESTAMP_START+entrySize]))
 	timestamp := entry.BytesToUint64(partialEntries[0][entry.TIMESTAMP_START:entry.TOMBSTONE_START])
 	tombstone := partialEntries[0][entry.TOMBSTONE_START:entry.TYPE_START]
 
@@ -294,6 +291,9 @@ func ConstructEntryFromPartialEntries(partialEntries [][]byte) entry.Entry {
 	// sastavimo ključ i vrednost
 	key := string(data[:keySize])
 	value := data[keySize : keySize+valueSize]
+
+	// izračunamo crc32
+	crc32 := entry.CRC32(append([]byte(key), value...))
 
 	return entry.Entry{
 		CRC:       crc32,

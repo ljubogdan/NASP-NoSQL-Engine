@@ -19,9 +19,10 @@ const (
 )
 
 type BlockManager struct {
-	BufferPool *BufferPool
-	WalPool    *WalPool
-	CachePool  *CachePool
+	BufferPool       *BufferPool
+	WalPool          *WalPool
+	CachePool        *CachePool
+	BidirectionalMap *BidirectionalMap
 
 	CRCList []uint32 // neophodno za RemoveExpiredWals
 }
@@ -35,10 +36,11 @@ func HandleError(err error, msg string) {
 func NewBlockManager() *BlockManager {
 	return &BlockManager{
 
-		BufferPool: NewBufferPool(),
-		WalPool:    NewWalPool(),
-		CachePool:  NewCachePool(),
-		CRCList:    make([]uint32, 0),
+		BufferPool:       NewBufferPool(),
+		WalPool:          NewWalPool(),
+		CachePool:        NewCachePool(),
+		BidirectionalMap: NewBidirectionalMap(),
+		CRCList:          make([]uint32, 0),
 	}
 }
 
@@ -206,6 +208,9 @@ func (bm *BlockManager) DetectExpiredWals() {
 	files, err := os.ReadDir(WalsPath)
 	HandleError(err, "Failed to read WALS folder")
 
+	// printamo trenutno stanje CRCList
+	log.Println("CRCList: ", bm.CRCList)
+
 	// sortiranje po imenu rastuće (npr. wal_00001, wal_00002, wal_00003...)
 	for i := 0; i < len(files); i++ {
 		for j := i + 1; j < len(files); j++ {
@@ -219,6 +224,13 @@ func (bm *BlockManager) DetectExpiredWals() {
 		walName := file.Name()
 
 		entries := bm.GetEntriesFromSpecificWal(walName)
+
+		// printamo koje crc-ove imamo u entries
+		log.Print("CRCs in ", walName, ": ")
+		for _, entry := range entries {
+			log.Print(entry.CRC)
+		}
+
 
 		// prolazimo kroz sve entrije u entries i proveravamo CRC
 		// pošto je CRCList lista flushovanih CRC-ova, ako se svaki CRC iz entries nalazi u CRCList, brišemo WAL (postavljamo LowWatermark samo)

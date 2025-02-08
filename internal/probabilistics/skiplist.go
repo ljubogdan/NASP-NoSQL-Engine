@@ -90,9 +90,6 @@ func (skiplist *SkipList) Insert(value entry.Entry) {
 		// koliko će visok biti novi niz čvorova?
 		newlevel := roll(skiplist.height)
 
-		// prikazujemo value i newlevel
-		fmt.Printf("Inserting %s with level %d\n", value.Key, newlevel)
-
 		var previousNode *Node
 
 		for i := 0; i < newlevel; i++ {
@@ -106,10 +103,6 @@ func (skiplist *SkipList) Insert(value entry.Entry) {
 			lefts[i].right = newNode
 			previousNode = newNode
 		}
-
-		skiplist.PrintLevels()
-		fmt.Println()
-		fmt.Println()
 	}
 }
 

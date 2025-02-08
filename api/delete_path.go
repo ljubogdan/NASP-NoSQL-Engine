@@ -8,6 +8,7 @@ import (
 	"NASP-NoSQL-Engine/internal/memtable"
 	"NASP-NoSQL-Engine/internal/sstable"
 	"NASP-NoSQL-Engine/internal/wal"
+	"fmt"
 	"time"
 )
 
@@ -255,7 +256,8 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 	encodedEntries := make([]encoded_entry.EncodedEntry, 0) // za početak enkodiramo entrije za sstabelu
 	for _, e := range *entries {
-		encodedEntries = append(encodedEntries, encoded_entry.EncodeEntry(e))
+		//encodedEntries = append(encodedEntries, encoded_entry.EncodeEntry(e))
+		fmt.Println(e)
 	}
 
 	sst := dpo.SSTableManager.CreateSSTable() // sada biramo koji režim upisivanja u sstabelu radimo, merge ili standard
@@ -388,6 +390,7 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 			dpo.BlockManager.WriteNONMergeBlock(block)
 		}
 
+		/*
 		// kreiramo index i upisujemo ga u sstable
 		index := dpo.SSTableManager.CreateNONMergeIndex(indexTuples, sst.BlockSize) // znak pitanja da li treba da se pravi po blokovima ili sve odjednom...
 		dpo.BlockManager.WriteNONMergeIndex(index, sst.SSTableName)
@@ -410,6 +413,7 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		sst.Metadata = metadata
 
 		// nastaviće se...
+		*/
 	}
 
 	return 0

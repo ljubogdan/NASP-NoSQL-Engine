@@ -4,9 +4,9 @@ import (
 	"NASP-NoSQL-Engine/internal/entry"
 	"NASP-NoSQL-Engine/internal/probabilistics"
 	"NASP-NoSQL-Engine/internal/trees"
+	"math"
 	"sort"
 	"time"
-	"math"
 )
 
 type MapWrapper struct {
