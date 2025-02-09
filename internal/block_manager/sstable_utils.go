@@ -20,6 +20,8 @@ func (bm *BlockManager) CreateMergeFiles(sstableName string) {
 	HandleError(err, "Failed to create merge file")
 	_, err = os.Create(SSTablesPath + sstableName + "/toc")
 	HandleError(err, "Failed to create toc file")
+	_, err = os.Create(SSTablesPath + sstableName + "/compression")
+	HandleError(err, "Failed to create compression file")
 }
 
 func (bm *BlockManager) CreateStandardFiles(sstableName string) {
@@ -39,6 +41,8 @@ func (bm *BlockManager) CreateStandardFiles(sstableName string) {
 	HandleError(err, "Failed to create merge file")
 	_, err = os.Create(SSTablesPath + sstableName + "/toc")
 	HandleError(err, "Failed to create toc file")
+	_, err = os.Create(SSTablesPath + sstableName + "/compression")
+	HandleError(err, "Failed to create compression file")
 }
 
 // funkcija koja čita block size iz fajla na osnovu putanje
@@ -61,18 +65,10 @@ func (bm *BlockManager) WriteBlockSize(path string, blockSize uint32) {
 	file.Close()
 }
 
-func (bm *BlockManager) WriteNONMergeMerge(path string) {
-	file, err := os.OpenFile(path, os.O_RDWR, 0644)
-	HandleError(err, "Failed to open merge file")
-	_, err = file.Write([]byte("false"))
-	HandleError(err, "Failed to write merge to merge file")
-	file.Close()
-}
-
 func (bm *BlockManager) WriteNONMergeTOC(path string) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0644)
 	HandleError(err, "Failed to open toc file")
-	tocData := []string{"data", "index", "summary", "metadata", "bloomfilter", "blocksize", "merge"}
+	tocData := []string{"data", "index", "summary", "metadata", "bloomfilter", "blocksize", "merge", "compression"}
 	for _, entry := range tocData {
 		err = binary.Write(file, binary.BigEndian, uint32(len(entry)))
 		HandleError(err, "Failed to write toc entry length to toc file")
@@ -82,18 +78,34 @@ func (bm *BlockManager) WriteNONMergeTOC(path string) {
 	file.Close()
 }
 
-func (bm *BlockManager) WriteMergeMerge(path string) {
+func (bm *BlockManager) WriteMerge(path string, merge bool) { // 1 ako je merge, 0 ako nije
 	file, err := os.OpenFile(path, os.O_RDWR, 0644)
 	HandleError(err, "Failed to open merge file")
-	_, err = file.Write([]byte("true"))
+	mergeByte := byte(0)
+	if merge {
+		mergeByte = byte(1)
+	}
+	_, err = file.Write([]byte{mergeByte})
 	HandleError(err, "Failed to write merge to merge file")
+	file.Close()
+}
+
+func (bm *BlockManager) WriteCompression(path string, compression bool) {
+	file, err := os.OpenFile(path, os.O_RDWR, 0644)
+	HandleError(err, "Failed to open compression file")
+	compressionByte := byte(0)
+	if compression {
+		compressionByte = byte(1)
+	}
+	_, err = file.Write([]byte{compressionByte})
+	HandleError(err, "Failed to write compression to compression file")
 	file.Close()
 }
 
 func (bm *BlockManager) WriteMergeTOC(path string) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0644)
 	HandleError(err, "Failed to open toc file")
-	tocData := []string{"data", "blocksize", "merge"}
+	tocData := []string{"data", "blocksize", "merge", "compression"}
 	for _, entry := range tocData {
 		err = binary.Write(file, binary.BigEndian, uint32(len(entry)))
 		HandleError(err, "Failed to write toc entry length to toc file")

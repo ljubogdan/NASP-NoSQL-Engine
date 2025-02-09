@@ -31,7 +31,7 @@ func NewEncodedEntry(crc []byte, timestamp []byte, tombstone []byte, entryType [
 }
 
 // funkcija koja enkodira entry u encoded entry, vraća enkodirani entry
-func EncodeEntry(e entry.Entry, globalValue uint32) EncodedEntry {
+func EncodeEntry(e entry.Entry, globalValue uint32, compression bool) EncodedEntry {
 	encodedEntry := EncodedEntry{}
 
 	encodedEntry.CRC = Uint32toVarint(e.CRC)
@@ -40,7 +40,11 @@ func EncodeEntry(e entry.Entry, globalValue uint32) EncodedEntry {
 	encodedEntry.Type = []byte{e.Type}
 
 	// globalValue nam je sada key, treba da ga enkodiramo
-	encodedEntry.Key = Uint32toVarint(globalValue)
+	if compression {
+		encodedEntry.Key = Uint32toVarint(globalValue)
+	} else {
+		encodedEntry.Key = []byte(e.Key)
+	}
 
 	encodedEntry.KeySize = Uint64toVarint(uint64(len(encodedEntry.Key)))
 
@@ -49,7 +53,7 @@ func EncodeEntry(e entry.Entry, globalValue uint32) EncodedEntry {
 		encodedEntry.ValueSize = Uint64toVarint(e.ValueSize)
  		encodedEntry.Value = e.Value
 	} else {
-		encodedEntry.ValueSize = []byte{}
+		encodedEntry.ValueSize = []byte{} // tehnički ne postoji value size
 		encodedEntry.Value = []byte{}
 	}
 

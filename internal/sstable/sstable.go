@@ -1,9 +1,9 @@
 package sstable
 
 import (
+	"NASP-NoSQL-Engine/internal/config"
 	"NASP-NoSQL-Engine/internal/probabilistics"
 	"NASP-NoSQL-Engine/internal/trees"
-	"NASP-NoSQL-Engine/internal/config"
 	"fmt"
 	"os"
 	"strconv"
@@ -55,8 +55,9 @@ func (sstm *SSTableManager) CreateSSTable() *SSTable {
 
 		blockSize := config.ReadBlockSize()
 		sstm.BlockManager.WriteBlockSize(SSTablesPath+sstableName+"/blocksize", blockSize)
-		sstm.BlockManager.WriteMergeMerge(SSTablesPath+sstableName+"/merge")
-		sstm.BlockManager.WriteMergeTOC(SSTablesPath+sstableName+"/toc")
+		sstm.BlockManager.WriteMerge(SSTablesPath+sstableName+"/merge", merge)
+		sstm.BlockManager.WriteMergeTOC(SSTablesPath + sstableName + "/toc")
+		sstm.BlockManager.WriteCompression(SSTablesPath+sstableName+"/compression", config.ReadCompression())
 
 		return &SSTable{
 			SSTableName:       sstableName,
@@ -67,13 +68,15 @@ func (sstm *SSTableManager) CreateSSTable() *SSTable {
 			BloomFilterName:   "",
 			BlockSizeFileName: "blocksize",
 			MergeName:         "merge",
+			CompressionName:   "compression",
 			TOCName:           "toc",
 
 			BloomFilter: probabilistics.NewBloomFilter(expectedElements, falsePositiveRate),
 			Metadata:    trees.NewMerkleTree(),
 
-			BlockSize: blockSize,
-			Merge:     true,
+			BlockSize:   blockSize,
+			Merge:       true,
+			Compression: config.ReadCompression(), // trenutno ne znači ništa, menja se u budućnosti
 		}
 	} else {
 
@@ -102,8 +105,9 @@ func (sstm *SSTableManager) CreateSSTable() *SSTable {
 
 		blockSize := config.ReadBlockSize()
 		sstm.BlockManager.WriteBlockSize(SSTablesPath+sstableName+"/blocksize", blockSize)
-		sstm.BlockManager.WriteNONMergeMerge(SSTablesPath+sstableName+"/merge")
-		sstm.BlockManager.WriteNONMergeTOC(SSTablesPath+sstableName+"/toc")
+		sstm.BlockManager.WriteMerge(SSTablesPath+sstableName+"/merge", merge)
+		sstm.BlockManager.WriteNONMergeTOC(SSTablesPath + sstableName + "/toc")
+		sstm.BlockManager.WriteCompression(SSTablesPath+sstableName+"/compression", config.ReadCompression())
 
 		return &SSTable{
 			SSTableName:       sstableName,
@@ -114,14 +118,15 @@ func (sstm *SSTableManager) CreateSSTable() *SSTable {
 			BloomFilterName:   "bloomfilter",
 			BlockSizeFileName: "blocksize",
 			MergeName:         "merge",
+			CompressionName:   "compression",
 			TOCName:           "toc",
 
 			BloomFilter: probabilistics.NewBloomFilter(expectedElements, falsePositiveRate),
 			Metadata:    trees.NewMerkleTree(),
 
-			BlockSize: blockSize,
-			Merge:     false,
+			BlockSize:   blockSize,
+			Merge:       false,
+			Compression: config.ReadCompression(), // trenutno ne znači ništa, menja se u budućnosti
 		}
 	}
 }
-

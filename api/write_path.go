@@ -281,23 +281,24 @@ func (wpo *WritePath) WriteEntryToWal(key string, value string) uint32 {
 
 func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
-	encodedEntries := make([]encoded_entry.EncodedEntry, 0) // za početak enkodiramo entrije za sstabelu
+	encodedEntries := make([]encoded_entry.EncodedEntry, 0) 
 
 	// ============================================================================================================ BITNA FUNKCIJA
 	wpo.BlockManager.ReadBidirectionalMapFromFile()
 	// ============================================================================================================ BITNA FUNKCIJA
 
+	sst := wpo.SSTableManager.CreateSSTable() // sada biramo koji režim upisivanja u sstabelu radimo, merge ili standard
+	compression := sst.Compression
+
 	for _, e := range *entries {
 		// ubacujemo ključeve u bidirekcioni map i uzimamo kompresovanu numeričku vrednost
 		globalValue := wpo.BlockManager.BidirectionalMap.Add(e.Key)
-		encodedEntries = append(encodedEntries, encoded_entry.EncodeEntry(e, globalValue))
+		encodedEntries = append(encodedEntries, encoded_entry.EncodeEntry(e, globalValue, compression))
 	}
 
 	// ============================================================================================================ BITNA FUNKCIJA
 	wpo.BlockManager.WriteBidirectionalMapToFile()
 	// ============================================================================================================ BITNA FUNKCIJA
-
-	sst := wpo.SSTableManager.CreateSSTable() // sada biramo koji režim upisivanja u sstabelu radimo, merge ili standard
 
 	// pravimo offsetes za index, odnosno listu od 3 para (key, position in block, block index) koja se kasnije prosledjuje createIndex metodi na obradu
 	indexTuples := make([]sstable.IndexTuple, 0)
@@ -436,7 +437,7 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		wpo.BlockManager.WriteNONMergeIndex(*index, sst.SSTableName)
 
 		// sada kreiramo summary
-		summary := wpo.SSTableManager.CreateNONMergeSummary(indexTuples, index)
+		summary := wpo.SSTableManager.CreateNONMergeSummary(indexTuples, index, compression)
 		wpo.BlockManager.WriteNONMergeSummary(summary, sst.SSTableName)
 
 		// potrebno je dodati elemente u bloom filter koji je već kreiran, samo ubacimo ključeve

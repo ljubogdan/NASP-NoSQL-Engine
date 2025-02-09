@@ -20,6 +20,7 @@
   },
   "SSTABLE": {
     "COMPACTION": false,
+    "COMPRESSION": false,
     "MERGE": false,
     "SSTABLE_MANAGER": {
       "capacity": 5
@@ -38,7 +39,7 @@
   },
   "WAL": {
     "blocks_per_wal": 5,
-    "low_watermark": 11
+    "low_watermark": 100000
   },
   "WAL_POOL": {
     "capacity": 5

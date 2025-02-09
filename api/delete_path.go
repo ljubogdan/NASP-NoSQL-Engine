@@ -8,7 +8,6 @@ import (
 	"NASP-NoSQL-Engine/internal/memtable"
 	"NASP-NoSQL-Engine/internal/sstable"
 	"NASP-NoSQL-Engine/internal/wal"
-	"fmt"
 	"time"
 )
 
@@ -255,12 +254,22 @@ func (dpo *DeletePath) WriteEntryToWal(key string, value string) uint32 {
 func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 	encodedEntries := make([]encoded_entry.EncodedEntry, 0) // za početak enkodiramo entrije za sstabelu
-	for _, e := range *entries {
-		//encodedEntries = append(encodedEntries, encoded_entry.EncodeEntry(e))
-		fmt.Println(e)
-	}
+
+	// ==============================================================================================================
+	dpo.BlockManager.ReadBidirectionalMapFromFile()
+	// ==============================================================================================================
 
 	sst := dpo.SSTableManager.CreateSSTable() // sada biramo koji režim upisivanja u sstabelu radimo, merge ili standard
+	compression := sst.Compression
+
+	for _, e := range *entries {
+		globalValue := dpo.BlockManager.BidirectionalMap.Add(e.Key)
+		encodedEntries = append(encodedEntries, encoded_entry.EncodeEntry(e, globalValue, compression))
+	}
+
+	// ==============================================================================================================
+	dpo.BlockManager.WriteBidirectionalMapToFile()
+	// ==============================================================================================================
 
 	// pravimo offsetes za index, odnosno listu od 3 para (key, position in block, block index) koja se kasnije prosledjuje createIndex metodi na obradu
 	indexTuples := make([]sstable.IndexTuple, 0)
@@ -360,10 +369,14 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 					if len(typeArray) == 1 {
 						dpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[0][0]).Data[typeArray[0][1]] = 1
 					} else {
-						dpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[0][0]).Data[typeArray[0][1]] = 2
+						block := dpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[0][0])
+						block.Data[typeArray[0][1]] = 2	                         // miljan fixx
+						dpo.BlockManager.WriteNONMergeBlock(block)
 						dpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[len(typeArray)-1][0]).Data[typeArray[len(typeArray)-1][1]] = 4
 						for i := 1; i < len(typeArray)-1; i++ {
-							dpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[i][0]).Data[typeArray[i][1]] = 3
+							block := dpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[i][0])
+							block.Data[typeArray[i][1]] = 3	                         // miljan fixx
+							dpo.BlockManager.WriteNONMergeBlock(block)						
 						}
 					}
 
@@ -390,13 +403,12 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 			dpo.BlockManager.WriteNONMergeBlock(block)
 		}
 
-		/*
 		// kreiramo index i upisujemo ga u sstable
 		index := dpo.SSTableManager.CreateNONMergeIndex(indexTuples, sst.BlockSize) // znak pitanja da li treba da se pravi po blokovima ili sve odjednom...
-		dpo.BlockManager.WriteNONMergeIndex(index, sst.SSTableName)
+		dpo.BlockManager.WriteNONMergeIndex(*index, sst.SSTableName)
 
 		// sada kreiramo summary
-		summary := dpo.SSTableManager.CreateNONMergeSummary(indexTuples, index)
+		summary := dpo.SSTableManager.CreateNONMergeSummary(indexTuples, index, compression)
 		dpo.BlockManager.WriteNONMergeSummary(summary, sst.SSTableName)
 
 		// potrebno je dodati elemente u bloom filter koji je već kreiran, samo ubacimo ključeve
@@ -413,7 +425,6 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		sst.Metadata = metadata
 
 		// nastaviće se...
-		*/
 	}
 
 	return 0

@@ -202,7 +202,7 @@ func handleDelete(dpo *DeletePath) uint32 {
 	}
 
 	// ako je entry prisutan u kešu samo se apdejtuje
-	dpo.BlockManager.CachePool.UpdateIfPresent(key, []byte("")) // alternativno dpo.BlockManager.CachePool.Delete(key)
+	dpo.BlockManager.CachePool.UpdateIfPresent(key, []byte("")) // alternativno dpo.BlockManager.CachePool.Delete(key) // potrebno apdejtovati dužine i ostale parametre ako ima potrebe
 
 	return returnValue
 }

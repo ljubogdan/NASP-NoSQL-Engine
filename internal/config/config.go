@@ -141,3 +141,13 @@ func WriteLowWatermark(lowWatermark uint32) {
 	err = os.WriteFile(ConfigPath, newConfig, 0644)
 	HandleError(err, "Failed to write config file")
 }
+
+func ReadCompression() bool {
+	data, err := os.ReadFile(ConfigPath)
+	HandleError(err, "Failed to read config file")
+
+	var config map[string]interface{}
+	json.Unmarshal(data, &config)
+
+	return config["SSTABLE"].(map[string]interface{})["COMPRESSION"].(bool)
+}
