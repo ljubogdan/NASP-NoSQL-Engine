@@ -8,6 +8,7 @@ import (
 	"NASP-NoSQL-Engine/internal/memtable"
 	"NASP-NoSQL-Engine/internal/sstable"
 	"NASP-NoSQL-Engine/internal/wal"
+	"bytes"
 	"time"
 )
 
@@ -277,7 +278,163 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 	merge := sst.Merge
 
 	if merge {
-		// logika koja se radi kasnije
+		filePath := "..-data-sstables-" + sst.SSTableName + "-data"
+		currentBlockIndex := uint32(0) // kako budem upisivali blokove, povećavaćemo ovaj broj (nije pravi index unutar data.bin)
+		positionInBlock := uint32(4)   // počinje od 4 jer prva 4 byte-a ostavljamo za označavanje koji blok pripada kom delu (povećati ako ima >255 blokova)
+		dpo.BlockManager.BufferPool.AddBlock(block_manager.NewBufferBlock(filePath, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false))
+		currentBlock := dpo.BlockManager.BufferPool.GetBlock(filePath, currentBlockIndex)
+
+		for _, e := range *entries {
+			sst.BloomFilter.Add([]byte(e.Key))
+		}
+
+		var bfBuffer bytes.Buffer
+		sst.BloomFilter.Serialize(&bfBuffer)
+		bfData := bfBuffer.Bytes()
+		for _, b := range bfData {
+			for positionInBlock >= sst.BlockSize {
+				currentBlock.WrittenStatus = true
+				dpo.BlockManager.WriteBlock(filePath, currentBlock)
+				currentBlockIndex++
+				positionInBlock -= sst.BlockSize
+				currentBlock = block_manager.NewBufferBlock(filePath, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
+			}
+
+			currentBlock.Data[positionInBlock] = b
+			positionInBlock++
+		}
+
+		// treba preći na sledeći blok nakon upisa bloom filtera
+		currentBlockIndex++
+		positionInBlock = 0
+		currentBlock = block_manager.NewBufferBlock(filePath, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
+
+		// upisuje se na kom bloku počinje data
+		dpo.BlockManager.BufferPool.GetBlock(filePath, 0).Data[0] = byte(currentBlockIndex)
+
+		// iteriramo kroz sve enkodirane entrije i upisujemo ih u dataBlocks
+		for _, e := range encodedEntries {
+			compactValue := make([]byte, 0)
+			compactValue = append(compactValue, e.Key...)
+			compactValue = append(compactValue, e.Value...)
+
+			indexTupleWritten := false // da li je index tuple upisan
+
+			typeArray := make([][2]uint32, 0) // pamti pozicije TYPE elemenata
+
+			compactBytesWritten := uint32(0)
+			compactValueCurrentPosition := uint32(0)
+
+			crcStart := uint32(0) // računamo start za svaki element jer se sada svaki put razlikuje u encoded entriju
+			timestampStart := crcStart + uint32(len(e.CRC))
+			tombstoneStart := timestampStart + uint32(len(e.Timestamp))
+			typeStart := tombstoneStart + uint32(len(e.Tombstone))
+
+			header := make([]byte, 0) // pravimo header koji će se uvek upisivati
+			header = append(header, e.CRC...)
+			header = append(header, e.Timestamp...)
+			header = append(header, e.Tombstone...)
+			header = append(header, e.Type...)
+			header = append(header, e.KeySize...)
+			header = append(header, e.ValueSize...)
+
+			complete := false
+
+			// izvršavamo dokle god ne bude complete, prave se novi blokovi i dodaju u buffer pool
+			for !complete {
+				// provera da li od trenutne pozicije u bloku ima dovoljno mesta za header
+				if positionInBlock+uint32(len(header)) <= sst.BlockSize {
+
+					if !indexTupleWritten {
+						indexTuples = append(indexTuples, sstable.IndexTuple{Key: e.Key, PositionInBlock: positionInBlock, BlockIndex: currentBlockIndex})
+						indexTupleWritten = true
+					}
+
+					for i := 0; i < len(header); i++ {
+						currentBlock.Data[positionInBlock] = header[i]
+						positionInBlock++
+
+						if i == int(typeStart) {
+							typeArray = append(typeArray, [2]uint32{currentBlockIndex, positionInBlock - 1})
+						}
+					}
+				} else {
+					sst.Metadata.AddBlock(&currentBlock.Data) // kada se blok napuni dodajemo ga u merkle stablo
+					currentBlock.WrittenStatus = true
+					dpo.BlockManager.WriteBlock(filePath, currentBlock)
+
+					// povećavamo indeks i kreiramo novi blok
+					currentBlockIndex++
+					currentBlock = block_manager.NewBufferBlock(filePath, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
+					positionInBlock = 0
+					continue
+				}
+
+				// upisujemo ključ i vrednost
+				for i := positionInBlock; i < sst.BlockSize; i++ {
+					currentBlock.Data[i] = compactValue[compactValueCurrentPosition]
+					compactValueCurrentPosition++
+					compactBytesWritten++
+					positionInBlock++
+					if compactBytesWritten == uint32(len(compactValue)) {
+						complete = true
+						break
+					}
+				}
+
+				// ako smo završili sa upisom, onda postavljamo TYPE elemente
+				if complete {
+					if len(typeArray) == 1 {
+						currentBlock.Data[typeArray[0][1]] = 1
+					} else {
+						currentBlock.Data[typeArray[len(typeArray)-1][1]] = 4
+					}
+
+				} else {
+					if len(typeArray) == 1 {
+						currentBlock.Data[typeArray[0][1]] = 2
+					} else {
+						currentBlock.Data[typeArray[len(typeArray)-1][1]] = 3
+					}
+
+					sst.Metadata.AddBlock(&currentBlock.Data)
+					currentBlock.WrittenStatus = true
+					dpo.BlockManager.WriteBlock(filePath, currentBlock)
+
+					currentBlockIndex++
+					currentBlock = block_manager.NewBufferBlock(filePath, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
+					positionInBlock = 0
+				}
+			}
+		}
+
+		// upisuje se poslednji blok ako nije već upisan (desi se ako nije skroz popunjen)
+		if !currentBlock.WrittenStatus {
+			sst.Metadata.AddBlock(&currentBlock.Data)
+			dpo.BlockManager.WriteNONMergeBlock(currentBlock)
+			currentBlockIndex++
+		}
+
+		// dobavljamo 1. blok da upišemo na kom bloku počinje index
+		currentBlock = dpo.BlockManager.BufferPool.GetBlock(filePath, 0)
+		currentBlock.Data[1] = byte(currentBlockIndex)
+
+		indexData := dpo.SSTableManager.CreateNONMergeIndex(indexTuples, sst.BlockSize)
+		summaryData := dpo.SSTableManager.CreateNONMergeSummary(indexTuples, indexData, compression, currentBlockIndex*sst.BlockSize)
+
+		dpo.BlockManager.WriteBytesAsBlocks(*indexData, filePath, currentBlockIndex)
+		currentBlockIndex += (uint32(len(*indexData)) + sst.BlockSize - 1) / sst.BlockSize // odlaže se povećanje indeksa da bi summary offset bio tačan
+		currentBlock.Data[2] = byte(currentBlockIndex)                                     // upisuje se na kom bloku počinje summary
+
+		dpo.BlockManager.WriteBytesAsBlocks(summaryData, filePath, currentBlockIndex)
+		currentBlockIndex += (uint32(len(summaryData)) + sst.BlockSize - 1) / sst.BlockSize
+		currentBlock.Data[3] = byte(currentBlockIndex) // upisuje se na kom bloku počinje merkle (metadata)
+
+		sst.Metadata.Build() // nakon dodavanja svih data blokova radi se build za merkle stablo
+		dpo.BlockManager.WriteBytesAsBlocks(*sst.Metadata.Serialize(), filePath, currentBlockIndex)
+
+		// upisujemo 1. blok ponovo sa sada zabeleženim podacima o početku svake sekcije
+		dpo.BlockManager.WriteBlock(filePath, currentBlock)
 	} else {
 		// dakle ideja je da se entriji upisuju u sstable po sličnom principu kao i u wal
 		// samo što ove ne znamo koliko će blokova trebati i onda se oni usput kreiraju
@@ -370,13 +527,13 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 						dpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[0][0]).Data[typeArray[0][1]] = 1
 					} else {
 						block := dpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[0][0])
-						block.Data[typeArray[0][1]] = 2	                         // miljan fixx
+						block.Data[typeArray[0][1]] = 2 // miljan fixx
 						dpo.BlockManager.WriteNONMergeBlock(block)
 						dpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[len(typeArray)-1][0]).Data[typeArray[len(typeArray)-1][1]] = 4
 						for i := 1; i < len(typeArray)-1; i++ {
 							block := dpo.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-"+"data", typeArray[i][0])
-							block.Data[typeArray[i][1]] = 3	                         // miljan fixx
-							dpo.BlockManager.WriteNONMergeBlock(block)						
+							block.Data[typeArray[i][1]] = 3 // miljan fixx
+							dpo.BlockManager.WriteNONMergeBlock(block)
 						}
 					}
 
@@ -408,7 +565,7 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		dpo.BlockManager.WriteNONMergeIndex(*index, sst.SSTableName)
 
 		// sada kreiramo summary
-		summary := dpo.SSTableManager.CreateNONMergeSummary(indexTuples, index, compression)
+		summary := dpo.SSTableManager.CreateNONMergeSummary(indexTuples, index, compression, 0)
 		dpo.BlockManager.WriteNONMergeSummary(summary, sst.SSTableName)
 
 		// potrebno je dodati elemente u bloom filter koji je već kreiran, samo ubacimo ključeve

@@ -99,7 +99,7 @@ func (sstm *SSTableManager) CreateNONMergeIndex(indexTuples []IndexTuple, blockS
 }
 
 // funkcija koja kreira Summary na osnovu indexa, vraća niz bajtova
-func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple, index *[]byte, compression bool) []byte {
+func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple, index *[]byte, compression bool, startingOffset uint32) []byte {
 	summary := make([]byte, 0)
 
 	// čitamo kolika je proredjenost (e.g. 5 znači svaki 5. IndexTuple uzimamo)
@@ -133,9 +133,9 @@ func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple, inde
 		summary = append(summary, 10)
 	} else {
 		summary = append(summary, []byte(keys[0])...)
-        summary = append(summary, 0)
-    	summary = append(summary, []byte(keys[len(keys)-1])...)
-    	summary = append(summary, 10)
+		summary = append(summary, 0)
+		summary = append(summary, []byte(keys[len(keys)-1])...)
+		summary = append(summary, 10)
 	}
 
 	if compression {
@@ -168,7 +168,7 @@ func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple, inde
 			if newlinesPassed == thinning { // jer smo već pročitali ključ i offset...
 				summary = append(summary, key...)
 				summary = append(summary, terminator...)
-				summary = append(summary, encoded_entry.Uint32toVarint(uint32(bytesPassed-len(key)-len(offset)-len(newline)-len(terminator)))...)
+				summary = append(summary, encoded_entry.Uint32toVarint(uint32(bytesPassed-len(key)-len(offset)-len(newline)-len(terminator))+startingOffset)...)
 				summary = append(summary, newline...)
 				newlinesPassed = 0
 			}
@@ -179,25 +179,25 @@ func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple, inde
 		summary = append(summary, 0)
 		summary = append(summary, encoded_entry.Uint32toVarint(0)...)
 		summary = append(summary, 10)
-	
+
 		currentKeyIndex := 0
 		newlinesPassed := 0
-	
+
 		for bytesPassed := 0; bytesPassed < len(*index); bytesPassed++ {
 			if (*index)[bytesPassed] == 10 { // ako je null bajt
 				newlinesPassed++
 				currentKeyIndex++
 			}
-	
+
 			if newlinesPassed == int(thinning) {
 				summary = append(summary, []byte(keys[currentKeyIndex])...)
 				summary = append(summary, 0)
-				summary = append(summary, encoded_entry.Uint32toVarint(uint32(bytesPassed+1))...)// brojimo bajtove od 0 zato je plus 1
+				summary = append(summary, encoded_entry.Uint32toVarint(uint32(bytesPassed+1)+startingOffset)...) // brojimo bajtove od 0 zato je plus 1
 				summary = append(summary, 10)
 				newlinesPassed = 0
 			}
 		}
-	}		
+	}
 
 	return summary
 }

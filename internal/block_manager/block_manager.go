@@ -45,6 +45,7 @@ func NewBlockManager() *BlockManager {
 }
 
 func (bm *BlockManager) WriteBlock(path string, block *BufferBlock) {
+	path = strings.Replace(path, "-", string(os.PathSeparator), -1)
 	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
 	HandleError(err, "Failed to open file")
 	defer file.Close()
@@ -101,6 +102,45 @@ func (bm *BlockManager) ReadBlock(path string, blockNumber uint32, blockSize uin
 		BlockNumber: blockNumber,
 		Data:        data,
 	}
+}
+
+func (bm *BlockManager) WriteBytesAsBlocks(data []byte, filePath string, startingBlock uint32) {
+	blockSize := config.ReadBlockSize()
+	filePath = strings.Replace(filePath, "-", string(os.PathSeparator), -1)
+
+	f, err := os.OpenFile(filePath, os.O_RDWR, 0644)
+	HandleError(err, "Failed to open file")
+	defer f.Close()
+
+	totalSize := uint32(len(data))
+	numBlocks := (totalSize + blockSize - 1) / blockSize // plafoniranje
+
+	for i := uint32(0); i < numBlocks; i++ {
+		start := i * blockSize
+		end := start + blockSize
+		if end > totalSize {
+			end = totalSize
+		}
+
+		block := make([]byte, blockSize)
+		copy(block, data[start:end])
+
+		// kreiramo blok i upisujemo ga u fajl pomoću write block metode
+		bb := &BufferBlock{
+			FileName:    filePath,
+			BlockNumber: startingBlock + i,
+			Data:        block,
+			BlockSize:   blockSize,
+
+			WrittenStatus: true,
+		}
+
+		bm.WriteBlock(filePath, bb)
+		bm.BufferPool.AddBlock(bb)
+	}
+
+	err = f.Sync()
+	HandleError(err, "Failed to sync file")
 }
 
 // prihvata buffer block
