@@ -305,6 +305,7 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		}
 
 		// treba preći na sledeći blok nakon upisa bloom filtera
+		dpo.BlockManager.WriteBlock(filePath, currentBlock)
 		currentBlockIndex++
 		positionInBlock = 0
 		currentBlock = block_manager.NewBufferBlock(filePath, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)

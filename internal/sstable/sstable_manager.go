@@ -177,7 +177,7 @@ func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple, inde
 		// za početak odmah upisujemo prvi ključ i offset 0
 		summary = append(summary, []byte(keys[0])...)
 		summary = append(summary, 0)
-		summary = append(summary, encoded_entry.Uint32toVarint(0)...)
+		summary = append(summary, encoded_entry.Uint32toVarint(startingOffset)...)
 		summary = append(summary, 10)
 
 		currentKeyIndex := 0

@@ -334,6 +334,7 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		}
 
 		// treba preći na sledeći blok nakon upisa bloom filtera
+		wpo.BlockManager.WriteBlock(filePath, currentBlock)
 		currentBlockIndex++
 		positionInBlock = 0
 		currentBlock = block_manager.NewBufferBlock(filePath, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
