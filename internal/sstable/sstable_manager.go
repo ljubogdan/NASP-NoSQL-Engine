@@ -7,6 +7,7 @@ import (
 	"NASP-NoSQL-Engine/internal/probabilistics"
 	"NASP-NoSQL-Engine/internal/trees"
 	"log"
+	"os"
 )
 
 const (
@@ -200,4 +201,92 @@ func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple, inde
 	}
 
 	return summary
+}
+
+// funkcija koja na početku programa prolazi kroz sstable folder i učitava sve sstable-ove u memoriju
+// odnosno kreira sstable objekte i dodaje ih u listu sstable-ova
+func (sstm *SSTableManager) LinkSSTable(sstableName string, dataName string, summaryName string, indexName string, metadataName string, bloomFilterName string, blockSizeFileName string, mergeName string, compressionName string, tocName string) {
+	// pre nego što linkujemo moramo da pročitamo sve podatke iz fajlova sem bloom filtera, merkle stabla
+	// toc, indexa, summarija i data
+	// učitavamo block size, merge, compression
+	blockSize := sstm.BlockManager.ReadBlockSize(SSTablesPath + sstableName + "/" + blockSizeFileName)	
+	merge := sstm.BlockManager.ReadMerge(SSTablesPath + sstableName + "/" + mergeName)
+	compression := sstm.BlockManager.ReadCompression(SSTablesPath + sstableName + "/" + compressionName)
+
+	// kreiramo sstable objekat
+	sstable := &SSTable{
+		SSTableName:       sstableName,
+		DataName:          dataName,
+		IndexName:         indexName,
+		SummaryName:       summaryName,
+		MetadataName:      metadataName,
+		BloomFilterName:   bloomFilterName,
+		BlockSizeFileName: blockSizeFileName,
+		MergeName:         mergeName,
+		CompressionName:   compressionName,
+		TOCName:           tocName,
+
+		BlockSize:   blockSize,
+		Merge:       merge,
+		Compression: compression,
+
+		BloomFilter: nil,
+		Metadata:    nil,
+	}
+
+	// dodajemo sstable u listu sstable-ova
+	sstm.AddSSTable(sstable)
+}
+
+// funkcija koja na početku programa ulitava i sortira sve sstabele u memoriju pojedinačno sa link funkcijom
+func (sstm *SSTableManager) LoadSSTables() {
+	// učitavamo sve foldere iz main sstables foldera
+	folders, err := os.ReadDir(SSTablesPath)
+	HandleError(err, "Failed to read sstables folder")
+
+	// prolazimo kroz sve foldere i linkujemo ih
+	for _, folder := range folders {
+		// učitavamo sve fajlove iz foldera
+		files, err := os.ReadDir(SSTablesPath + folder.Name())
+		HandleError(err, "Failed to read sstable folder")
+
+		// prolazimo kroz sve fajlove i linkujemo ih
+		var dataName, summaryName, indexName, metadataName, bloomFilterName, blockSizeFileName, mergeName, compressionName, tocName string
+		for _, file := range files {
+			switch file.Name() {
+			case "data":
+				dataName = file.Name()
+			case "summary":
+				summaryName = file.Name()
+			case "index":
+				indexName = file.Name()
+			case "metadata":
+				metadataName = file.Name()
+			case "bloomfilter":
+				bloomFilterName = file.Name()
+			case "blocksize":
+				blockSizeFileName = file.Name()
+			case "merge":
+				mergeName = file.Name()
+			case "compression":
+				compressionName = file.Name()
+			case "toc":
+				tocName = file.Name()
+			}
+		}
+
+		// linkujemo sstable
+		sstm.LinkSSTable(folder.Name(), dataName, summaryName, indexName, metadataName, bloomFilterName, blockSizeFileName, mergeName, compressionName, tocName)
+
+		// za svaki slučaj sortiramo od najmanjeg do najvećeg sstabele objekte prema sstable name
+		// npr. sstable_00001, sstable_00002, sstable_00003...
+
+		for i := 0; i < len(sstm.List); i++ {
+			for j := i + 1; j < len(sstm.List); j++ {
+				if sstm.List[i].SSTableName > sstm.List[j].SSTableName {
+					sstm.List[i], sstm.List[j] = sstm.List[j], sstm.List[i]
+				}
+			}
+		}
+	}
 }

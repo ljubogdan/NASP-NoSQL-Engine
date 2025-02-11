@@ -50,9 +50,9 @@ func message(returnValue uint32) {
 
 func StartCLI() {
 
-	// ================================================================================================= BITNA FUNKCIJA
+	// ================================================================================================= LOWWATERMARK FUNKCIJA
 	config.CorrectLowWatermark()
-	// ================================================================================================= BITNA FUNKCIJA
+	// ================================================================================================= LOWWATERMARK FUNKCIJA
 
 	blockManager := block_manager.NewBlockManager()
 
@@ -65,7 +65,7 @@ func StartCLI() {
 	writePathObject := NewWritePath(blockManager, walManager, memtableManager, sstableManager)
 	writePathObject.BlockManager.FillWalPool(writePathObject.WalManager.Wal.Path)
 
-	readPathObject := NewReadPath(blockManager, memtableManager)
+	readPathObject := NewReadPath(blockManager, memtableManager, sstableManager)
 
 	deletePathObject := NewDeletePath(blockManager, walManager, memtableManager, sstableManager)
 
@@ -73,6 +73,10 @@ func StartCLI() {
 	for _, entry := range entries {
 		memtableManager.InsertFromWAL(&entry)
 	}
+
+	// ================================================================================================= SSTABELE LOAD
+	sstableManager.LoadSSTables()
+	// ================================================================================================= SSTABELE LOAD
 
 	reader := bufio.NewReader(os.Stdin)
 	returnValue := uint32(0)
@@ -171,8 +175,8 @@ func handleGet(rpo *ReadPath) uint32 {
 	}
 
 	result, exists := rpo.ReadEntry(key)
-	fmt.Println(bold + "\n➤ Result: " + string(result.Value) + reset)
 	if exists {
+		fmt.Println(bold + "\n➤ Result: " + string(result.Value) + reset)
 		return 0
 	}
 	return 5

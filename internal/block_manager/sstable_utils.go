@@ -90,6 +90,18 @@ func (bm *BlockManager) WriteMerge(path string, merge bool) { // 1 ako je merge,
 	file.Close()
 }
 
+func (bm *BlockManager) ReadMerge(path string) bool {
+	file, err := os.OpenFile(path, os.O_RDONLY, 0644)
+	HandleError(err, "Failed to open merge file")
+	mergeByte := make([]byte, 1)
+
+	_, err = file.Read(mergeByte)
+	HandleError(err, "Failed to read merge from merge file")
+	file.Close()
+
+	return mergeByte[0] == 1
+}
+
 func (bm *BlockManager) WriteCompression(path string, compression bool) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0644)
 	HandleError(err, "Failed to open compression file")
@@ -100,6 +112,18 @@ func (bm *BlockManager) WriteCompression(path string, compression bool) {
 	_, err = file.Write([]byte{compressionByte})
 	HandleError(err, "Failed to write compression to compression file")
 	file.Close()
+}
+
+func (bm *BlockManager) ReadCompression(path string) bool {
+	file, err := os.OpenFile(path, os.O_RDONLY, 0644)
+	HandleError(err, "Failed to open compression file")
+	compressionByte := make([]byte, 1)
+
+	_, err = file.Read(compressionByte)
+	HandleError(err, "Failed to read compression from compression file")
+	file.Close()
+
+	return compressionByte[0] == 1
 }
 
 func (bm *BlockManager) WriteMergeTOC(path string) {
