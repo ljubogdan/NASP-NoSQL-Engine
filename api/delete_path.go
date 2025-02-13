@@ -279,10 +279,11 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 	if merge {
 		filePath := "..-data-sstables-" + sst.SSTableName + "-data"
+		blockFileId := "sstables-" + sst.SSTableName + "-data"
 		currentBlockIndex := uint32(0) // kako budem upisivali blokove, povećavaćemo ovaj broj (nije pravi index unutar data.bin)
 		positionInBlock := uint32(4)   // počinje od 4 jer prva 4 byte-a ostavljamo za označavanje koji blok pripada kom delu (povećati ako ima >255 blokova)
-		dpo.BlockManager.BufferPool.AddBlock(block_manager.NewBufferBlock(filePath, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false))
-		currentBlock := dpo.BlockManager.BufferPool.GetBlock(filePath, currentBlockIndex)
+		dpo.BlockManager.BufferPool.AddBlock(block_manager.NewBufferBlock(blockFileId, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false))
+		currentBlock := dpo.BlockManager.BufferPool.GetBlock(blockFileId, currentBlockIndex)
 
 		for _, e := range *entries {
 			sst.BloomFilter.Add([]byte(e.Key))
@@ -297,7 +298,7 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 				dpo.BlockManager.WriteBlock(filePath, currentBlock)
 				currentBlockIndex++
 				positionInBlock -= sst.BlockSize
-				currentBlock = block_manager.NewBufferBlock(filePath, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
+				currentBlock = block_manager.NewBufferBlock(blockFileId, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
 			}
 
 			currentBlock.Data[positionInBlock] = b
@@ -308,10 +309,10 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		dpo.BlockManager.WriteBlock(filePath, currentBlock)
 		currentBlockIndex++
 		positionInBlock = 0
-		currentBlock = block_manager.NewBufferBlock(filePath, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
+		currentBlock = block_manager.NewBufferBlock(blockFileId, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
 
 		// upisuje se na kom bloku počinje data
-		dpo.BlockManager.BufferPool.GetBlock(filePath, 0).Data[0] = byte(currentBlockIndex)
+		dpo.BlockManager.BufferPool.GetBlock(blockFileId, 0).Data[0] = byte(currentBlockIndex)
 
 		// iteriramo kroz sve enkodirane entrije i upisujemo ih u dataBlocks
 		for _, e := range encodedEntries {
@@ -366,7 +367,7 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 					// povećavamo indeks i kreiramo novi blok
 					currentBlockIndex++
-					currentBlock = block_manager.NewBufferBlock(filePath, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
+					currentBlock = block_manager.NewBufferBlock(blockFileId, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
 					positionInBlock = 0
 					continue
 				}
@@ -403,7 +404,7 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 					dpo.BlockManager.WriteBlock(filePath, currentBlock)
 
 					currentBlockIndex++
-					currentBlock = block_manager.NewBufferBlock(filePath, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
+					currentBlock = block_manager.NewBufferBlock(blockFileId, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
 					positionInBlock = 0
 				}
 			}
@@ -417,7 +418,7 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		}
 
 		// dobavljamo 1. blok da upišemo na kom bloku počinje index
-		currentBlock = dpo.BlockManager.BufferPool.GetBlock(filePath, 0)
+		currentBlock = dpo.BlockManager.BufferPool.GetBlock(blockFileId, 0)
 		currentBlock.Data[1] = byte(currentBlockIndex)
 
 		indexData := dpo.SSTableManager.CreateNONMergeIndex(indexTuples, sst.BlockSize)
