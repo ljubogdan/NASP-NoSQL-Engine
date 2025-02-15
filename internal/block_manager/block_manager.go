@@ -101,6 +101,9 @@ func (bm *BlockManager) ReadBlock(path string, blockNumber uint32, blockSize uin
 		FileName:    fileName,
 		BlockNumber: blockNumber,
 		Data:        data,
+		BlockSize:   blockSize,
+
+		WrittenStatus: true,
 	}
 }
 

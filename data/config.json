@@ -1,6 +1,6 @@
 {
   "BLOOM_FILTER": {
-    "expected_elements": 2,
+    "expected_elements": 5,
     "false_positive_rate": 0.02
   },
   "BUFFER_POOL": {
@@ -20,8 +20,8 @@
   },
   "SSTABLE": {
     "COMPACTION": false,
-    "COMPRESSION": true,
-    "MERGE": true,
+    "COMPRESSION": false,
+    "MERGE": false,
     "SSTABLE_MANAGER": {
       "capacity": 5
     },

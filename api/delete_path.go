@@ -585,5 +585,8 @@ func (dpo *DeletePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		// nastaviće se...
 	}
 
+	// dodajemo sstable u sstable manager
+	dpo.SSTableManager.AddSSTable(sst)
+
 	return 0
 }

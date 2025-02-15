@@ -55,7 +55,7 @@ func HandleError(err error, msg string) {
 }
 
 func NewSSTableManager() *SSTableManager {
-	return &SSTableManager{List: make([]*SSTable, 0)}
+	return &SSTableManager{List: make([]*SSTable, 0), Capacity:100000}
 }
 
 func (manager *SSTableManager) AddSSTable(sstable *SSTable) {

@@ -227,7 +227,7 @@ func (bm *BlockManager) WriteNONMergeSummary(summary []byte, sstable string) {
 
 // non merge funkcija koja upisuje bloom filter u fajl blokovski
 // NAPOMENA: ovde se koristi bytes.Buffer
-// NAPOMENA: blokovski upis ne pravi padding na zadnjeg bloka kasnije zbog deserijalizacije
+// NAPOMENA: blokovski upis sada pravi padding na zadnjem bloku
 func (bm *BlockManager) WriteNONMergeBloomFilter(bf *probabilistics.BloomFilter, sstable string) {
 	filePath := SSTablesPath + sstable + "/" + "bloomfilter"
 
@@ -237,11 +237,11 @@ func (bm *BlockManager) WriteNONMergeBloomFilter(bf *probabilistics.BloomFilter,
 	}
 
 	blockSize := config.ReadBlockSize()
-	data := buffer.Bytes()
+	data := buffer.Bytes()[:buffer.Len()]
 	totalSize := uint32(len(data))
 	numBlocks := (totalSize + blockSize - 1) / blockSize
 
-	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0666)
+	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	HandleError(err, "Failed to open file")
 	defer file.Close()
 
@@ -252,19 +252,14 @@ func (bm *BlockManager) WriteNONMergeBloomFilter(bf *probabilistics.BloomFilter,
 			end = totalSize
 		}
 
-		var block []byte
-		if end-start < blockSize {
-			block = data[start:end] // Tačna veličina poslednjeg bloka
-		} else {
-			block = make([]byte, blockSize)
-			copy(block, data[start:end])
-		}
+		block := make([]byte, blockSize) // Alociramo blok sa punom veličinom            (ChatGPT korekcija - testirati naknadno) (problem sa bytes.buffer)
+		copy(block, data[start:end])     // Kopiramo validne podatke, ostatak ostaje 0 (padding)
 
 		bb := &BufferBlock{
 			FileName:      "sstables-" + sstable + "-bloomfilter",
 			BlockNumber:   i,
 			Data:          block,
-			BlockSize:     uint32(len(block)), // sada imamo preciznu veličinu bloka
+			BlockSize:     blockSize,
 			WrittenStatus: true,
 		}
 

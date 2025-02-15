@@ -612,5 +612,8 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		sst.Metadata = metadata
 	}
 
+	// dodajemo sstable u listu svih sstabela
+	wpo.SSTableManager.AddSSTable(sst)
+
 	return 0
 }
