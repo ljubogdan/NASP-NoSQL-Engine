@@ -194,6 +194,13 @@ func (bm *BlockManager) WriteNONMergeSummary(summary []byte, sstable string) {
 	HandleError(err, "Failed to open file")
 	defer f.Close()
 
+	// ============= VAŽNO =============
+	// prepravimo summary da prva 4 bajta budu uint32 bigendian veličina summary-ja
+	summarySize := make([]byte, 4)
+	binary.BigEndian.PutUint32(summarySize, uint32(len(summary)))
+	summary = append(summarySize, summary...)
+	// =================================
+
 	totalSize := uint32(len(summary))
 	numBlocks := (totalSize + blockSize - 1) / blockSize // plafoniranje
 

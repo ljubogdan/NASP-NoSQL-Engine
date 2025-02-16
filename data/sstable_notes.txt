@@ -5,7 +5,7 @@ OPIS SSTABELE - VAŽNO
     - 4 bajta veličina bloka
 2. BloomFilter
     - blokovski upis
-    - NEMA PADDINGA na ZADNJEM BLOKU
+    - PADDING na ZADNJEM BLOKU
 3. Data 
     - blokovski upis
     - PADDING na SVAKOM BLOKU (WAL sistem)
