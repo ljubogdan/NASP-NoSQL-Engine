@@ -3,3 +3,4 @@ go.mod
 data/sstables/*
 data/wals/*
 data/flushed_crcs
+data/bidirectional_map.bin
