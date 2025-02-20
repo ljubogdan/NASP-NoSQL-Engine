@@ -55,6 +55,13 @@ type KeyOffsetVarint struct {
 
 // ======================================================
 
+func StripPadding(data []byte) []byte {
+	i := len(data) - 1
+	for ; i > -1 && data[i] == 0; i-- {
+	}
+	return data[:i]
+}
+
 func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 
 	rpo.BlockManager.ReadBidirectionalMapFromFile() // priprema bidirekcione mape za rad
@@ -77,10 +84,30 @@ func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 
 	for i := len(rpo.SSTablesManager.List) - 1; i >= 0; i-- {
 		sstable := rpo.SSTablesManager.List[i]
+		folderPath := SSTablesPath + sstable.SSTableName + "/"
+		blockSize := rpo.BlockManager.ReadBlockSize(folderPath + sstable.BlockSizeFileName)
 		// ako je merge:
 		if sstable.Merge {
-			continue
-			// miljan
+			dataPath := folderPath + sstable.DataName
+			block := rpo.BlockManager.ReadBlock(dataPath, 0, blockSize)
+
+			sectionIndexed := make([]uint8, 4)
+			for i := 0; i < 4; i++ {
+				sectionIndexed[i] = uint8(block.Data[i])
+			}
+
+			bfData := block.Data[4:]
+			for i := uint8(0); i < sectionIndexed[0]; i++ {
+				bfData = append(bfData, rpo.BlockManager.ReadBlock(dataPath, uint32(i), blockSize).Data...)
+			}
+			// deserializovati bloom filter ovde
+
+			// proveriti da li je u bloom filteru
+			if !exists {
+				continue
+			}
+
+			//TODO: summary, index i data
 		} else {
 			// za početak neophodno je proveriti u bloom filteru da li postoji entry sa zadatim ključem
 			bloomFilter := rpo.FindAndDeserializeNONMergeBF(sstable.SSTableName, sstable.BlockSize)
