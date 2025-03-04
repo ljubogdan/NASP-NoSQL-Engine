@@ -116,13 +116,31 @@ func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 				// sada idemo u index strukturu i tražimo ključ
 				found, offset := rpo.FindInIndex(sstable.SSTableName, sstable.BlockSize, key, stringLowerBound, stringUpperBound, summary, compression)
 
-				// nastaviće se... Bogdan
-
+				fmt.Println("\nFound: ", found)
+				fmt.Println("Offset: ", offset)
+				fmt.Println()
+				
+				if found {
+					// sada idemo u data strukturu i čitamo entry
+					return rpo.FindInData(sstable.SSTableName, sstable.BlockSize, offset, compression)
+				} else {
+					continue
+				}
 			}
 		}
 	}
 
 	return entry.Entry{}, false
+}
+
+// funkcija koja pronalazi entry u data strukturi
+func (rpo *ReadPath) FindInData(sstableName string, blockSize uint32, offset uint32, compression bool) (entry.Entry, bool) {
+	// sada pročitamo blok u kome se nalazi entry
+	// prema offsetu procenimo koji je index bloka u pitanju
+	blockIndex := offset / blockSize
+	
+	// čitamo blokove i spajamo u entry dokle god ne konstruišemo ceo entry
+	// nastaviće se... Bogdan
 }
 
 // funkcija koja pronalazi ključ u index strukturi
@@ -131,8 +149,103 @@ func (rpo *ReadPath) FindInIndex(sstableName string, blockSize uint32, key strin
 	lowerOffset, upperOffset := rpo.SetOffsetsForIndexSearch(stringLowerBound, stringUpperBound, summary, compression)
 
 	// sada proveravamo da li se ključ nalazi u opsegu lower i upper offseta u indexu
+	// i pomoću block size znamo od kog bloka da krenemo sa pretragom
+	// recimo ako je block size 50, a lower offset 66, onda znamo da ključ počinje od bloka 1 (blokovi se broje od 0)
 
-	// Nastaviće se... Bogdan
+	firstBlockIndex := lowerOffset / blockSize
+	lastBlockIndex := upperOffset / blockSize
+
+	// sada iteriramo kroz blokove i proveravamo da li se ključ nalazi u nekom od njih
+	// učitamo sve blokove od firstBlockIndex do lastBlockIndex i zalepimo ih u jedan blok
+
+	completeBlock := make([]byte, 0)
+
+	for i := firstBlockIndex; i <= lastBlockIndex; i++ {
+		block := rpo.BlockManager.BufferPool.GetBlock("sstables-"+sstableName+"-index", i)
+		if block == nil {
+			block = rpo.BlockManager.ReadBlock(SSTablesPath+sstableName+"/"+"index", i, blockSize)
+			rpo.BlockManager.BufferPool.AddBlock(block)
+		}
+
+		// zalepimo blokove u jedan (radimo sa kopijama podataka)
+		completeBlock = append(completeBlock, block.Data...) // proveriti da li je ovo uvek ispravno
+	}
+
+	/*
+		VEOMA VAŽNO:
+			ako zadnji bajt u bloku nije null bajt 0 ili nije newline blok, onda moramo pročitati još jedan blok posle njega
+			jer se ostatak zapisa nalazi u tom bloku
+			a i kasnije da nebi došlo do neke potencijalne greške u čitanju sadržaja blokova
+
+			novi blok treba dodati i u slučaju koji je veoma redak a to je da zadnji bajt bude nula bajt
+			a predzadnji bajt da bude bilo šta osim nula bajta ili newline bajta
+			onda moramo pročitati još jedan blok
+	*/
+
+	// proveravamo da li je poslednji bajt u completeBlock-u null bajt ili newline
+	if completeBlock[len(completeBlock)-1] != 0 && completeBlock[len(completeBlock)-1] != 10 {
+		// pročitamo još jedan blok
+		block := rpo.BlockManager.BufferPool.GetBlock("sstables-"+sstableName+"-index", lastBlockIndex+1)
+		if block == nil {
+			block = rpo.BlockManager.ReadBlock(SSTablesPath+sstableName+"/"+"index", lastBlockIndex+1, blockSize)
+			rpo.BlockManager.BufferPool.AddBlock(block)
+
+			// zalepimo blokove u jedan (radimo sa kopijama podataka)
+			completeBlock = append(completeBlock, block.Data...) // proveriti da li je ovo uvek ispravno
+		}
+	} else if completeBlock[len(completeBlock)-1] == 0 && completeBlock[len(completeBlock)-2] != 0 {
+		// pročitamo još jedan blok
+		block := rpo.BlockManager.BufferPool.GetBlock("sstables-"+sstableName+"-index", lastBlockIndex+1)
+		if block == nil {
+			block = rpo.BlockManager.ReadBlock(SSTablesPath+sstableName+"/"+"index", lastBlockIndex+1, blockSize)
+			rpo.BlockManager.BufferPool.AddBlock(block)
+
+			// zalepimo blokove u jedan (radimo sa kopijama podataka)
+			completeBlock = append(completeBlock, block.Data...) // proveriti da li je ovo uvek ispravno
+		}
+	}
+
+	// sada iteriramo kroz completeBlock i proveravamo da li se ključ nalazi u njemu
+	// odredjujemo koliko treba da umanjimo od lower i upper offseta da bi dobili tačan offset u completeBlock-u
+	// i onda proveravamo da li se ključ nalazi u tom opsegu
+
+	toSubtract := firstBlockIndex * blockSize
+
+	clo := lowerOffset - toSubtract // corrected lower offset
+	cuo := upperOffset - toSubtract // corrected upper offset
+
+	// iteriramo kroz completeBlock i proveravamo da li se ključ nalazi u njemu
+	for i := clo; i <= cuo; {
+		// prvo pročitamo ključ
+		potentialKeyBytes := ReadNullTerminatedString(completeBlock[i:])
+		// nakon svakog čitanja se pomeramo za toliko
+		i += uint32(len(potentialKeyBytes)) + 1 // +1 zbog null bajta
+
+		// proveravamo da li je ključ jednak traženom ključu
+		if compression {
+			potentialKeyUint32, err := encoded_entry.VarintToUint32(potentialKeyBytes)
+			HandleError(err, "Failed to convert varint to uint32")
+			if rpo.BlockManager.BidirectionalMap.GetByUint32(potentialKeyUint32) == key {
+				// pročitamo offset
+				offsetBytes := encoded_entry.ReadVarint(completeBlock[i:])
+				offset, err := encoded_entry.VarintToUint32(offsetBytes)
+				HandleError(err, "Failed to convert varint to uint32")
+				return true, offset
+			}
+		} else {
+			if string(potentialKeyBytes) == key {
+				// pročitamo offset
+				offsetBytes := encoded_entry.ReadVarint(completeBlock[i:])
+				offset, err := encoded_entry.VarintToUint32(offsetBytes)
+				HandleError(err, "Failed to convert varint to uint32")
+				return true, offset
+			}
+		}
+
+		// pročitamo offset
+		offsetBytes := encoded_entry.ReadVarint(completeBlock[i:])
+		i += uint32(len(offsetBytes)) + 1 // +1 zbog newline bajta
+	}
 
 	return false, 0
 }
@@ -163,14 +276,18 @@ func (rpo *ReadPath) SetOffsetsForIndexSearch(stringLowerBound string, stringUpp
 	}
 
 	/*
-		jako bitno naglasiti da upper offset mora biti veći
-		od lower offseta, jer se u indexu ključevi nalaze u rastućem redosledu
-		a ovde se može desiti (jako često) da upper offset ostane nula
-		o čemu moramo voditi računa
-		odnosno da će se koristiti upper offset samo u slučaju da je veći od lower offseta
-
-		KADA JE UPPER OFFSET NULA, RADIMO PRETRAGU DO KRAJA FAJLA
+		korigujemo upper offset
+		ako je 0, onda ga postavljamo na poslednji offset u summary-ju
+		ako nije 0, onda ignorišemo samo...
 	*/
+
+	if upperOffset == 0 {
+		if compression {
+			upperOffset = summary.KeysOffsetsVarints[len(summary.KeysOffsetsVarints)-1].Offset
+		} else {
+			upperOffset = summary.KeysOffsets[len(summary.KeysOffsets)-1].Offset
+		}
+	}
 
 	return lowerOffset, upperOffset
 }
