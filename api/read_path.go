@@ -138,9 +138,109 @@ func (rpo *ReadPath) FindInData(sstableName string, blockSize uint32, offset uin
 	// sada pročitamo blok u kome se nalazi entry
 	// prema offsetu procenimo koji je index bloka u pitanju
 	blockIndex := offset / blockSize
+
+	// pre svakog zapisa entrija unutar bloka imamo njegom header koji ima:
+	/* CRC, Timestamp, Tombstone, Type, KeySize, ValueSize */ 
+	// ako ne stane sve u blok onda se na početku sledećeg bloka opet nalazi header
 	
-	// čitamo blokove i spajamo u entry dokle god ne konstruišemo ceo entry
-	// nastaviće se... Bogdan
+	block := rpo.BlockManager.BufferPool.GetBlock("sstables-"+sstableName+"-data", blockIndex)
+	if block == nil {
+		block = rpo.BlockManager.ReadBlock(SSTablesPath+sstableName+"/"+"data", blockIndex, blockSize)
+		rpo.BlockManager.BufferPool.AddBlock(block)
+	}
+
+	// oduzmemo od offseta celobrojni broj blokova
+	toSubtract := blockIndex * blockSize
+
+	// korigujemo offset
+	correctedOffset := offset - toSubtract
+
+	crcVarint := encoded_entry.ReadVarint(block.Data[correctedOffset:])
+	correctedOffset += uint32(len(crcVarint))
+	timestampVarint := encoded_entry.ReadVarint(block.Data[correctedOffset:])
+	correctedOffset += uint32(len(timestampVarint))
+	tombstoneVarint := encoded_entry.ReadVarint(block.Data[correctedOffset:])
+	correctedOffset += uint32(len(tombstoneVarint))
+	typeVarint := encoded_entry.ReadVarint(block.Data[correctedOffset:])
+	correctedOffset += uint32(len(typeVarint))
+	keySizeVarint := encoded_entry.ReadVarint(block.Data[correctedOffset:])
+	correctedOffset += uint32(len(keySizeVarint))
+
+	valueSizeVarint := []byte{}
+	
+	// ako je tombstone 1 onda nema value size i value
+	if tombstoneVarint[0] != byte(1) {
+		valueSizeVarint = encoded_entry.ReadVarint(block.Data[correctedOffset:])
+		correctedOffset += uint32(len(valueSizeVarint))
+	}
+
+	keyAndValueBytes := make([]byte, 0) // ovde ćemo zalepiti ključ i vrednost, kasnije ćemo ih odvojiti
+	toIterate := uint64(0) // koliko puta treba iterirati 
+
+	// saberemo key size i value size i toliko puta iteriramo 
+	if len(valueSizeVarint) == 0 {
+		keySize, err := encoded_entry.VarintToUint64(keySizeVarint)
+		HandleError(err, "Failed to convert varint to uint64")
+		toIterate = keySize
+	} else {
+		keySize, err := encoded_entry.VarintToUint64(keySizeVarint)
+		HandleError(err, "Failed to convert varint to uint64")
+		valueSize, err := encoded_entry.VarintToUint64(valueSizeVarint)
+		HandleError(err, "Failed to convert varint to uint64")
+		toIterate = keySize + valueSize
+	}
+
+	/* 
+		IDEJA
+			Dakle iteriramo kroz blokove i spajamo bajtove ključa i vrednosti
+			ako dodjemo do kraja bloka, čitamo sledeći blok i nastavljamo sa spajanjem
+			ako dodjemo do kraja vrednosti, završavamo sa spajanjem
+			kada se zapis prekine na početku sledećeg bloka imamo header opet
+	*/
+
+	complete := false
+
+	for i := uint64(0); i < toIterate; {
+		if complete { break }
+		if correctedOffset >= blockSize {
+			blockIndex++
+			block = rpo.BlockManager.BufferPool.GetBlock("sstables-"+sstableName+"-data", blockIndex)
+			if block == nil {
+				block = rpo.BlockManager.ReadBlock(SSTablesPath+sstableName+"/"+"data", blockIndex, blockSize)
+				rpo.BlockManager.BufferPool.AddBlock(block)
+			}
+			correctedOffset = 0
+
+			// pomerimo corrected offset za CRC, Timestamp, Tombstone, Type, KeySize, ValueSize odnosno header
+			correctedOffset += (uint32(len(crcVarint)) + uint32(len(timestampVarint)) + uint32(len(tombstoneVarint)) + uint32(len(typeVarint)) + uint32(len(keySizeVarint)) + uint32(len(valueSizeVarint)))
+		}
+
+		// pročitamo bajtove ključa i vrednosti
+		keyAndValueBytes = append(keyAndValueBytes, block.Data[correctedOffset])
+		correctedOffset++
+		i++
+
+		// proverimo da li smo završili sa spajanjem
+		if i >= toIterate { complete = true }
+	}
+
+	if complete {
+		keySize, err := encoded_entry.VarintToUint32(keySizeVarint)
+		HandleError(err, "Failed to convert varint to uint64")
+		keyBytes := keyAndValueBytes[:keySize]
+		valueBytes := keyAndValueBytes[keySize:]
+
+		if compression {
+			keyUint32, err := encoded_entry.VarintToUint32(keyBytes)
+			HandleError(err, "Failed to convert varint to uint32")
+			key := rpo.BlockManager.BidirectionalMap.GetByUint32(keyUint32)
+			return entry.Entry{Key: key, Value: valueBytes}, true
+		} else {
+			return entry.Entry{Key: string(keyBytes), Value: valueBytes}, true
+		}
+	}
+
+	return entry.Entry{}, false
 }
 
 // funkcija koja pronalazi ključ u index strukturi
