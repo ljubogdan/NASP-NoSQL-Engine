@@ -14,14 +14,14 @@
     "max_value_size": 200
   },
   "MEMTABLE": {
-    "entries_per_table": 5,
+    "entries_per_table": 6,
     "number_of_tables": 2,
     "structure": "map"
   },
   "SSTABLE": {
     "COMPACTION": false,
     "COMPRESSION": true,
-    "MERGE": false,
+    "MERGE": true,
     "SSTABLE_MANAGER": {
       "capacity": 5
     },

@@ -59,7 +59,7 @@ func StripPadding(data []byte) []byte {
 	i := len(data) - 1
 	for ; i > -1 && data[i] == 0; i-- {
 	}
-	return data[:i]
+	return data[:i+1]
 }
 
 func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
@@ -96,11 +96,11 @@ func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 				sectionIndexed[i] = uint8(block.Data[i])
 			}
 
-			bfData := block.Data[4:]
+			var bfData []byte
 			for i := uint8(0); i < sectionIndexed[0]; i++ {
 				bfData = append(bfData, rpo.BlockManager.ReadBlock(dataPath, uint32(i), blockSize).Data...)
 			}
-			bloomFilter, err := probabilistics.DeserializeFromBytes_BF(bfData)
+			bloomFilter, err := probabilistics.DeserializeFromBytes_BF(StripPadding(bfData[8:]))
 			HandleError(err, "Failed to deserialize bloom filter")
 
 			if !bloomFilter.Contains([]byte(key)) {
@@ -111,59 +111,69 @@ func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 			block = rpo.BlockManager.ReadBlock(dataPath, uint32(sectionIndexed[2]), blockSize)
 			offsetInBlock := 0
 
+			var minKey string
+			var maxKey string
 			lastOffset := uint64(blockSize) * uint64(sectionIndexed[1]) // pamti zadnji offset iz summary/index
 			jumped := false                                             // prati da li smo na idex delu
 
 			if sstable.Compression {
-				formatedKey := rpo.BlockManager.BidirectionalMap.ForwardMap[key] // formatiram key jednom da ne bi formatirao svaki sa kojim ga poredim
-
 				minKeyBytes := encoded_entry.ReadVarint(block.Data[offsetInBlock:])
 				minKeyVarint, err := encoded_entry.VarintToUint32(minKeyBytes)
 				HandleError(err, "Unable to read min key in summary of "+sstable.DataName)
+				minKey = rpo.BlockManager.BidirectionalMap.ReverseMap[minKeyVarint]
 				offsetInBlock += len(minKeyBytes) + 1
 
 				maxKeyBytes := encoded_entry.ReadVarint(block.Data[offsetInBlock:])
 				maxKeyVarint, err := encoded_entry.VarintToUint32(maxKeyBytes)
 				HandleError(err, "Unable to read max key in summary of "+sstable.DataName)
+				maxKey = rpo.BlockManager.BidirectionalMap.ReverseMap[maxKeyVarint]
 				offsetInBlock += len(minKeyBytes) + 1
 
-				if formatedKey < minKeyVarint || formatedKey > maxKeyVarint {
+				if key < minKey || key > maxKey {
 					continue
 				}
 
-				// koristim minKeyVarint za pamćenje zadnjeg ključa kako ne bi pravio novu promenjivu
 				for true {
-					nextKeyBytes := encoded_entry.ReadVarint(block.Data[offsetInBlock:])
+					if offsetInBlock >= int(blockSize) {
+						offsetInBlock -= int(blockSize)
+						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
+					}
+
+					nextKeyBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+					fmt.Println(nextKeyBytes)
 					offsetInBlock += len(nextKeyBytes) + 1
-					nextKey, err := encoded_entry.VarintToUint32(nextKeyBytes)
-					for err != nil {
-						if block.BlockNumber+1 > uint32(sectionIndexed[3]) {
-							HandleError(err, "Faild to read summary key")
-						}
-
+					for !done {
+						offsetInBlock = 0
 						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
-						fragment := encoded_entry.ReadVarint(block.Data)
-						offsetInBlock = len(fragment) + 1
+						fragment, end := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
 						nextKeyBytes = append(nextKeyBytes, fragment...)
-						nextKey, err = encoded_entry.VarintToUint32(nextKeyBytes)
-					}
-
-					nextOffsetBytes := encoded_entry.ReadVarint(block.Data[offsetInBlock:])
-					nextOffset, err := encoded_entry.VarintToUint64(nextOffsetBytes)
-					for err != nil {
-						if block.BlockNumber+1 > uint32(sectionIndexed[3]) {
-							HandleError(err, "Faild to read summary offset")
-						}
-
-						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
-						fragment := encoded_entry.ReadVarint(block.Data)
+						done = end
 						offsetInBlock = len(fragment) + 1
-						nextOffsetBytes = append(nextOffsetBytes, fragment...)
-						nextOffset, err = encoded_entry.VarintToUint64(nextOffsetBytes)
 					}
-					offsetInBlock += len(nextOffsetBytes) + 1
+					nextKeyVarint, err := encoded_entry.VarintToUint32(nextKeyBytes)
+					// HandleError(err, "Faild to read key")
+					if err != nil {
+						nextKeyVarint = 0
+					}
+					nextKey := rpo.BlockManager.BidirectionalMap.ReverseMap[nextKeyVarint]
 
-					if nextKey > formatedKey {
+					nextOffsetBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+					offsetInBlock += len(nextOffsetBytes) + 1
+					for !done {
+						offsetInBlock = 0
+						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
+						fragment, end := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+						nextOffsetBytes = append(nextKeyBytes, fragment...)
+						done = end
+						offsetInBlock = len(fragment) + 1
+					}
+					nextOffset, err := encoded_entry.VarintToUint64(nextOffsetBytes)
+					// HandleError(err, "Faild to read offset")
+					if err != nil {
+						nextOffset = 0
+					}
+
+					if nextKey > key || nextKey < minKey || block.BlockNumber >= uint32(sectionIndexed[3]) {
 						if jumped {
 							break
 						}
@@ -173,57 +183,59 @@ func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 						jumped = true
 					} else {
 						lastOffset = nextOffset
-						minKeyVarint = nextKey
+						minKey = nextKey // koristim minKeyVarint za pamćenje najbližeg ključa (čisto da ne pravim novu promenjivu)
 					}
 				}
 
 			} else {
 				minKeyBytes := ReadNullTerminatedString(block.Data[offsetInBlock:])
-				minKeyString := string(minKeyBytes)
+				minKey = string(minKeyBytes)
 				offsetInBlock += len(minKeyBytes) + 1
 
 				maxKeyBytes := ReadNewlineTerminatedString(block.Data[offsetInBlock:])
-				maxKeyString := string(maxKeyBytes)
+				maxKey = string(maxKeyBytes)
 				HandleError(err, "Unable to read max key in summary of "+sstable.DataName)
 				offsetInBlock += len(minKeyBytes) + 1
 
-				if key < minKeyString || key > maxKeyString {
+				if key < minKey || key > maxKey {
 					continue
 				}
 
-				// koristim minKeyVarint za pamćenje zadnjeg ključa kako ne bi pravio novu promenjivu
 				for true {
-					nextKeyBytes := ReadNullTerminatedString(block.Data[offsetInBlock:])
+					if offsetInBlock >= int(blockSize) {
+						offsetInBlock = 0
+						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
+					}
+
+					nextKeyBytes, done := ReadNullTerminatedStringBytes(block.Data[offsetInBlock:])
 					offsetInBlock += len(nextKeyBytes) + 1
-					nextKey, err := encoded_entry.VarintToUint32(nextKeyBytes)
-					for err != nil {
-						if block.BlockNumber+1 > uint32(sectionIndexed[3]) {
-							HandleError(err, "Faild to read summary key")
-						}
-
+					for !done {
+						offsetInBlock = 0
 						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
-						fragment := encoded_entry.ReadVarint(block.Data)
-						offsetInBlock = len(fragment) + 1
+						fragment, end := ReadNullTerminatedStringBytes(block.Data[offsetInBlock:])
 						nextKeyBytes = append(nextKeyBytes, fragment...)
-						nextKey, err = encoded_entry.VarintToUint32(nextKeyBytes)
-					}
-
-					nextOffsetBytes := encoded_entry.ReadVarint(block.Data[offsetInBlock:])
-					nextOffset, err := encoded_entry.VarintToUint64(nextOffsetBytes)
-					for err != nil {
-						if block.BlockNumber+1 > uint32(sectionIndexed[3]) {
-							HandleError(err, "Faild to read summary offset")
-						}
-
-						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
-						fragment := encoded_entry.ReadVarint(block.Data)
+						done = end
 						offsetInBlock = len(fragment) + 1
-						nextOffsetBytes = append(nextOffsetBytes, fragment...)
-						nextOffset, err = encoded_entry.VarintToUint64(nextOffsetBytes)
 					}
-					offsetInBlock += len(nextOffsetBytes) + 1
+					nextKey := string(nextKeyBytes)
 
-					if nextKey > key {
+					nextOffsetBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+					offsetInBlock += len(nextOffsetBytes) + 1
+					for !done {
+						offsetInBlock = 0
+						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
+						fragment, end := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+						nextOffsetBytes = append(nextKeyBytes, fragment...)
+						done = end
+						offsetInBlock = len(fragment) + 1
+					}
+					nextOffset, err := encoded_entry.VarintToUint64(nextOffsetBytes)
+					// HandleError(err, "Faild to read offset")
+					if err != nil {
+						nextOffset = 0
+					}
+
+					if nextKey > key || nextKey < minKey || block.BlockNumber >= uint32(sectionIndexed[3]) {
 						if jumped {
 							break
 						}
@@ -233,9 +245,14 @@ func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 						jumped = true
 					} else {
 						lastOffset = nextOffset
-						minKeyString = nextKey
+						minKey = nextKey // koristim minKeyVarint za pamćenje najbližeg ključa (čisto da ne pravim novu promenjivu)
 					}
 				}
+			}
+
+			// može se desiti da najbliži ključ nije onaj koji tražimo pa prelazimo na sledežći sstable
+			if minKey == key {
+				return rpo.FindInData(sstable.SSTableName, blockSize, uint32(lastOffset), sstable.Compression)
 			}
 
 		} else {
@@ -276,7 +293,7 @@ func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 				fmt.Println("\nFound: ", found)
 				fmt.Println("Offset: ", offset)
 				fmt.Println()
-				
+
 				if found {
 					// sada idemo u data strukturu i čitamo entry
 					return rpo.FindInData(sstable.SSTableName, sstable.BlockSize, offset, compression)
@@ -297,9 +314,9 @@ func (rpo *ReadPath) FindInData(sstableName string, blockSize uint32, offset uin
 	blockIndex := offset / blockSize
 
 	// pre svakog zapisa entrija unutar bloka imamo njegom header koji ima:
-	/* CRC, Timestamp, Tombstone, Type, KeySize, ValueSize */ 
+	/* CRC, Timestamp, Tombstone, Type, KeySize, ValueSize */
 	// ako ne stane sve u blok onda se na početku sledećeg bloka opet nalazi header
-	
+
 	block := rpo.BlockManager.BufferPool.GetBlock("sstables-"+sstableName+"-data", blockIndex)
 	if block == nil {
 		block = rpo.BlockManager.ReadBlock(SSTablesPath+sstableName+"/"+"data", blockIndex, blockSize)
@@ -324,7 +341,7 @@ func (rpo *ReadPath) FindInData(sstableName string, blockSize uint32, offset uin
 	correctedOffset += uint32(len(keySizeVarint))
 
 	valueSizeVarint := []byte{}
-	
+
 	// ako je tombstone 1 onda nema value size i value
 	if tombstoneVarint[0] != byte(1) {
 		valueSizeVarint = encoded_entry.ReadVarint(block.Data[correctedOffset:])
@@ -332,9 +349,9 @@ func (rpo *ReadPath) FindInData(sstableName string, blockSize uint32, offset uin
 	}
 
 	keyAndValueBytes := make([]byte, 0) // ovde ćemo zalepiti ključ i vrednost, kasnije ćemo ih odvojiti
-	toIterate := uint64(0) // koliko puta treba iterirati 
+	toIterate := uint64(0)              // koliko puta treba iterirati
 
-	// saberemo key size i value size i toliko puta iteriramo 
+	// saberemo key size i value size i toliko puta iteriramo
 	if len(valueSizeVarint) == 0 {
 		keySize, err := encoded_entry.VarintToUint64(keySizeVarint)
 		HandleError(err, "Failed to convert varint to uint64")
@@ -347,7 +364,7 @@ func (rpo *ReadPath) FindInData(sstableName string, blockSize uint32, offset uin
 		toIterate = keySize + valueSize
 	}
 
-	/* 
+	/*
 		IDEJA
 			Dakle iteriramo kroz blokove i spajamo bajtove ključa i vrednosti
 			ako dodjemo do kraja bloka, čitamo sledeći blok i nastavljamo sa spajanjem
@@ -358,7 +375,9 @@ func (rpo *ReadPath) FindInData(sstableName string, blockSize uint32, offset uin
 	complete := false
 
 	for i := uint64(0); i < toIterate; {
-		if complete { break }
+		if complete {
+			break
+		}
 		if correctedOffset >= blockSize {
 			blockIndex++
 			block = rpo.BlockManager.BufferPool.GetBlock("sstables-"+sstableName+"-data", blockIndex)
@@ -378,7 +397,9 @@ func (rpo *ReadPath) FindInData(sstableName string, blockSize uint32, offset uin
 		i++
 
 		// proverimo da li smo završili sa spajanjem
-		if i >= toIterate { complete = true }
+		if i >= toIterate {
+			complete = true
+		}
 	}
 
 	if complete {
@@ -776,6 +797,25 @@ func ReadNewlineTerminatedString(buf []byte) []byte {
 		}
 	}
 	return nil
+}
+
+// nisam hteo da menjam već postojeće funkcije, ali mi je trebala slična funkcionalnost
+func ReadNullTerminatedStringBytes(buf []byte) ([]byte, bool) {
+	for i, b := range buf {
+		if b == 0 {
+			return buf[:i], true
+		}
+	}
+	return buf, false
+}
+
+func ReadNewlineTerminatedStringBytes(buf []byte) ([]byte, bool) {
+	for i, b := range buf {
+		if b == 10 {
+			return buf[:i], true
+		}
+	}
+	return buf, false
 }
 
 // funkcija koja preko block managera pronalazi non-merge blokove bloom filtera i deserijalizuje ih

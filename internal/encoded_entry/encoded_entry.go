@@ -51,7 +51,7 @@ func EncodeEntry(e entry.Entry, globalValue uint32, compression bool) EncodedEnt
 	// ako je tombsotne == 1, ovda valeSize i value je prazan niz bajtova
 	if e.Tombstone == byte(0) {
 		encodedEntry.ValueSize = Uint64toVarint(e.ValueSize)
- 		encodedEntry.Value = e.Value
+		encodedEntry.Value = e.Value
 	} else {
 		encodedEntry.ValueSize = []byte{} // tehnički ne postoji value size
 		encodedEntry.Value = []byte{}
@@ -103,4 +103,11 @@ func ReadVarint(buf []byte) []byte {
 	return buf[:n]
 }
 
-
+func ReadVarintBytes(buf []byte) ([]byte, bool) {
+	for i, b := range buf {
+		if b <= 0x80 {
+			return buf[:i+1], true
+		}
+	}
+	return buf, false
+}
