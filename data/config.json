@@ -1,6 +1,6 @@
 {
   "BLOOM_FILTER": {
-    "expected_elements": 5,
+    "expected_elements": 6,
     "false_positive_rate": 0.02
   },
   "BUFFER_POOL": {
@@ -20,8 +20,8 @@
   },
   "SSTABLE": {
     "COMPACTION": false,
-    "COMPRESSION": true,
-    "MERGE": true,
+    "COMPRESSION": false,
+    "MERGE": false,
     "SSTABLE_MANAGER": {
       "capacity": 5
     },
@@ -39,7 +39,7 @@
   },
   "WAL": {
     "blocks_per_wal": 5,
-    "low_watermark": 100000
+    "low_watermark": 0
   },
   "WAL_POOL": {
     "capacity": 5

@@ -190,7 +190,7 @@ func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple, inde
 				currentKeyIndex++
 			}
 
-			if newlinesPassed == int(thinning) {
+			if newlinesPassed == int(thinning) && currentKeyIndex < len(keys) {
 				summary = append(summary, []byte(keys[currentKeyIndex])...)
 				summary = append(summary, 0)
 				summary = append(summary, encoded_entry.Uint32toVarint(uint32(bytesPassed+1)+startingOffset)...) // brojimo bajtove od 0 zato je plus 1

@@ -53,7 +53,7 @@ type KeyOffsetVarint struct {
 	Offset uint32
 }
 
-// ======================================================
+// ====================================================== Miljan
 
 func StripPadding(data []byte) []byte {
 	i := len(data) - 1
@@ -61,6 +61,8 @@ func StripPadding(data []byte) []byte {
 	}
 	return data[:i+1]
 }
+
+// ====================================================== Miljan
 
 func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 
@@ -133,7 +135,7 @@ func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 					continue
 				}
 
-				for true {
+				for {
 					if offsetInBlock >= int(blockSize) {
 						offsetInBlock -= int(blockSize)
 						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
@@ -201,7 +203,7 @@ func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 					continue
 				}
 
-				for true {
+				for {
 					if offsetInBlock >= int(blockSize) {
 						offsetInBlock = 0
 						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
@@ -425,6 +427,30 @@ func (rpo *ReadPath) FindInData(sstableName string, blockSize uint32, offset uin
 func (rpo *ReadPath) FindInIndex(sstableName string, blockSize uint32, key string, stringLowerBound string, stringUpperBound string, summary *Summary, compression bool) (bool, uint32) {
 	// sada prema lower bound, upper bound i summary-ju, odredimo donji i gornji offset za pretragu u indexu
 	lowerOffset, upperOffset := rpo.SetOffsetsForIndexSearch(stringLowerBound, stringUpperBound, summary, compression)
+
+	/*
+		nastaje zanimljiv problem a to je slučaj
+		ako je lower offset i upper offset oba različita od 0
+		i jednaka, onda se može naći maksimalno poslednji ključ iz summarija.
+		Recimo ako summary ima ključeve k1, k3 i k5, a index ima k1, k2, k3, k4, k5, k6,
+		onda k6 neće biti nikada pronadjen
+
+		neka ideja je korigovati upper offset tako da bude jednak poslednjem ključu iz INDEXA, a ne iz summarija
+		to bi bilo privremeno rešenje
+
+		U slučaju bolje ideje, slobodno implementirati
+	*/
+
+	if (lowerOffset == upperOffset) && lowerOffset != 0 {
+		// korigujemo upper offset da bude jednak dužini indexa? Da li je bezbedno? - proveriti...
+		// ako je recimo dužina fajla 250, a block size 50, onda je index poslednjeg bloka 4
+
+		upperOffset = rpo.BlockManager.GetFileLength(SSTablesPath + sstableName + "/index") - 1
+		// radimo -1 da bi izbeli problem kasnije tipa 250 / 50 = 5, a mi imamo blokove od 0 do 4
+	}
+
+	fmt.Println("\nLower offset: ", lowerOffset)
+	fmt.Println("Upper offset: ", upperOffset)
 
 	// sada proveravamo da li se ključ nalazi u opsegu lower i upper offseta u indexu
 	// i pomoću block size znamo od kog bloka da krenemo sa pretragom

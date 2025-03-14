@@ -44,6 +44,17 @@ func NewBlockManager() *BlockManager {
 	}
 }
 
+func (bm *BlockManager) GetFileLength(path string) uint32 {
+	file, err := os.Open(path)
+	HandleError(err, "Failed to open file")
+	defer file.Close()
+
+	fi, err := file.Stat()
+	HandleError(err, "Failed to get file info")
+
+	return uint32(fi.Size())
+}
+ 
 func (bm *BlockManager) WriteBlock(path string, block *BufferBlock) {
 	path = strings.Replace(path, "-", string(os.PathSeparator), -1)
 	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
