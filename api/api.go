@@ -5,6 +5,7 @@ import (
 	"NASP-NoSQL-Engine/internal/config"
 	"NASP-NoSQL-Engine/internal/memtable"
 	"NASP-NoSQL-Engine/internal/sstable"
+	"NASP-NoSQL-Engine/internal/tokenbucket"
 	"NASP-NoSQL-Engine/internal/wal"
 	"bufio"
 	"fmt"
@@ -43,6 +44,8 @@ func message(returnValue uint32) {
 		fmt.Print(bold + red + "[ERROR] Unknown operation, please try again!" + reset)
 	case 5:
 		fmt.Print(bold + orange + "[OK] Entry with given key doesnt exist!" + reset)
+	case 6:
+		fmt.Print(bold + red + "[ERROR] Rate limit exceeded!" + reset)
 	default:
 		fmt.Print(bold + red + "[ERROR] Unknown error." + reset)
 	}
@@ -163,7 +166,11 @@ func handlePut(wpo *WritePath) uint32 {
 	return returnValue
 }
 
-func handleGet(rpo *ReadPath) uint32 {
+func handleGet(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {
+	if !tb.Allow(1) {
+		return 6
+	}
+
 	fmt.Print(bold + "\n➤ Enter key: " + reset)
 	reader := bufio.NewReader(os.Stdin)
 	key, _ := reader.ReadString('\n')
@@ -177,7 +184,7 @@ func handleGet(rpo *ReadPath) uint32 {
 	result, exists := rpo.ReadEntry(key)
 	if exists {
 		fmt.Println(bold + "\n➤ Result: " + string(result.Value) + reset)
-		
+
 		// ubacujemo entry u key cache
 		rpo.BlockManager.CachePool.Add(&block_manager.CacheEntry{Key: key, Value: result.Value})
 
@@ -186,7 +193,10 @@ func handleGet(rpo *ReadPath) uint32 {
 	return 5
 }
 
-func handleDelete(dpo *DeletePath) uint32 {
+func handleDelete(dpo *DeletePath, tb *tokenbucket.TokenBucket) uint32 {
+	if !tb.Allow(1) {
+		return 6
+	}
 	fmt.Print(bold + "\n➤ Enter key: " + reset)
 	reader := bufio.NewReader(os.Stdin)
 	key, _ := reader.ReadString('\n')

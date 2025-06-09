@@ -88,9 +88,14 @@ func (hll *HyperLogLog) Serialize() *[]byte {
 }
 
 func Deserialize_HLL(data *[]byte) *HyperLogLog {
-	hll := NewHyperLogLog(uint8(0))
+	if data == nil || len(*data) == 0 {
+		return NewHyperLogLog(uint8(0))
+	}
+
+	p := (*data)[0]
+	hll := NewHyperLogLog(p)
 	regSize := uint64(len((*data)[1:]))
-	for i := uint64(0); i < regSize; i++ {
+	for i := uint64(0); i < regSize && i < hll.m; i++ {
 		hll.reg[i] = uint8((*data)[i+1])
 	}
 	return hll

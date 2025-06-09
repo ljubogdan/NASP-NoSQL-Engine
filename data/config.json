@@ -43,5 +43,9 @@
   },
   "WAL_POOL": {
     "capacity": 5
+  },
+  "TOKEN_BUCKET": {
+    "capacity": 5,
+    "fill_interval_ms": 100
   }
 }
