@@ -192,10 +192,14 @@ func handleGet(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {
 
 	result, exists := rpo.ReadEntry(key)
 	if exists {
-		fmt.Println(bold + "\n➤ Result: " + string(result.Value) + reset)
-
 		// ubacujemo entry u key cache
 		rpo.BlockManager.CachePool.Add(&block_manager.CacheEntry{Key: key, Value: result.Value})
+
+		if len(result.Value) == 0 {
+			return 5 // ako je entry prazan, vraćamo 5
+		}
+
+		fmt.Println(bold + "\n➤ Result: " + string(result.Value) + reset)
 
 		return 0
 	}

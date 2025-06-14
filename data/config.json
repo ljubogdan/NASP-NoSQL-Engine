@@ -24,8 +24,8 @@
   },
   "SSTABLE": {
     "COMPACTION": true,
-    "COMPRESSION": true,
-    "MERGE": true,
+    "COMPRESSION": false,
+    "MERGE": false,
     "SSTABLE_MANAGER": {
       "capacity": 5
     },
@@ -41,15 +41,15 @@
       "size_3": 16384
     }
   },
-  "WAL": {
-    "blocks_per_wal": 5,
-    "low_watermark": 1
-  },
-  "WAL_POOL": {
-    "capacity": 5
-  },
   "TOKEN_BUCKET": {
     "capacity": 5,
     "fill_interval_ms": 100
+  },
+  "WAL": {
+    "blocks_per_wal": 5,
+    "low_watermark": 0
+  },
+  "WAL_POOL": {
+    "capacity": 5
   }
 }
