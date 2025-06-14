@@ -90,6 +90,43 @@ func (manager *MemtableManager) Find(key string) (entry.Entry, bool) {
 	return entry, exists
 }
 
+func (manager *MemtableManager) GetAll() *[]entry.Entry {
+	tableCount := uint16(len(manager.tables))
+	entriesByTable := make([][]entry.Entry, tableCount)
+
+	relevanceIndex := uint16(0)
+	for i := manager.current; i != (manager.current-1+tableCount)%tableCount; i = (i - 1 + tableCount) % tableCount {
+		entriesByTable[relevanceIndex] = *manager.tables[i].GetAll()
+		relevanceIndex++
+	}
+
+	result := make([]entry.Entry, 0)
+	for len(entriesByTable) > 0 {
+		min := ""
+		minTableIndex := 0
+		for i := 0; i < len(entriesByTable); i++ {
+			if len(entriesByTable[i]) < 1 {
+				continue
+			}
+
+			if min == "" || min > entriesByTable[i][0].Key {
+				min = entriesByTable[i][0].Key
+				minTableIndex = i
+			} else if min == entriesByTable[i][0].Key {
+				entriesByTable[i] = entriesByTable[i][1:]
+			}
+		}
+
+		if min != "" {
+			result = append(result, entriesByTable[minTableIndex][0])
+			entriesByTable[minTableIndex] = entriesByTable[minTableIndex][1:]
+		} else {
+			break
+		}
+	}
+	return &result
+}
+
 func (manager *MemtableManager) Delete(key string) *[]entry.Entry {
 	manager.tables[manager.current].Delete(key)
 	if manager.tables[manager.current].Full() {

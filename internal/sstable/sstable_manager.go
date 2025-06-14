@@ -48,6 +48,15 @@ type SSTable struct {
 	Compression bool
 }
 
+type SSTableIterator struct {
+	SSTableName string
+	Merge       bool
+	Compression bool
+	BlockSize   uint32
+	Offset      uint32
+	LastKey     string
+}
+
 func HandleError(err error, msg string) {
 	if err != nil {
 		log.Fatalf("%s: %v", msg, err)
@@ -55,7 +64,7 @@ func HandleError(err error, msg string) {
 }
 
 func NewSSTableManager() *SSTableManager {
-	return &SSTableManager{List: make([]*SSTable, 0), Capacity:100000}
+	return &SSTableManager{List: make([]*SSTable, 0), Capacity: 100000}
 }
 
 func (manager *SSTableManager) AddSSTable(sstable *SSTable) {
@@ -209,7 +218,7 @@ func (sstm *SSTableManager) LinkSSTable(sstableName string, dataName string, sum
 	// pre nego što linkujemo moramo da pročitamo sve podatke iz fajlova sem bloom filtera, merkle stabla
 	// toc, indexa, summarija i data
 	// učitavamo block size, merge, compression
-	blockSize := sstm.BlockManager.ReadBlockSize(SSTablesPath + sstableName + "/" + blockSizeFileName)	
+	blockSize := sstm.BlockManager.ReadBlockSize(SSTablesPath + sstableName + "/" + blockSizeFileName)
 	merge := sstm.BlockManager.ReadMerge(SSTablesPath + sstableName + "/" + mergeName)
 	compression := sstm.BlockManager.ReadCompression(SSTablesPath + sstableName + "/" + compressionName)
 

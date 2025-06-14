@@ -25,6 +25,7 @@ func CorrectLowWatermark() { // ideja je ako u wals folderu ima 0 walova (nakon 
 		WriteLowWatermark(100000)
 	}
 }
+
 // ============================================================================= BITNA FUNKCIJA
 
 func ReadBlockSize() uint32 {
@@ -150,4 +151,28 @@ func ReadCompression() bool {
 	json.Unmarshal(data, &config)
 
 	return config["SSTABLE"].(map[string]interface{})["COMPRESSION"].(bool)
+}
+
+func ReadScanPageSize() uint32 {
+	data, err := os.ReadFile(ConfigPath)
+	if err != nil {
+		return uint32(5)
+	}
+
+	var config map[string]interface{}
+	json.Unmarshal(data, &config)
+
+	return uint32(config["SCAN"].(map[string]interface{})["page_size"].(float64))
+}
+
+func ReadPageCacheSize() uint32 {
+	data, err := os.ReadFile(ConfigPath)
+	if err != nil {
+		return uint32(3)
+	}
+
+	var config map[string]interface{}
+	json.Unmarshal(data, &config)
+
+	return uint32(config["SCAN"].(map[string]interface{})["cache_size"].(float64))
 }

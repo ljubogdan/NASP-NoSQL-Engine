@@ -39,8 +39,8 @@ func (mw *MapWrapper) Size() int {
 }
 
 type Memtable struct {
-	data MemtableData
-	max  uint16
+	data      MemtableData
+	max       uint16
 	structure string
 }
 
@@ -56,14 +56,14 @@ func NewMemtable(size uint16, structure string) *Memtable {
 
 func (mt *Memtable) Put(key string, value []byte) {
 	mt.data.Insert(entry.Entry{
-		Key: key,
-		KeySize: uint64(len(key)),
-		Value: value,
+		Key:       key,
+		KeySize:   uint64(len(key)),
+		Value:     value,
 		ValueSize: uint64(len(value)),
 		Tombstone: byte(0),
 		Timestamp: uint64(time.Now().Unix()),
-		Type: byte(1),
-		CRC: uint32(entry.CRC32(append([]byte(key), value...))),
+		Type:      byte(1),
+		CRC:       uint32(entry.CRC32(append([]byte(key), value...))),
 	})
 }
 
@@ -79,6 +79,14 @@ func (mt *Memtable) Get(key string) (entry.Entry, bool) {
 	return value, exists
 }
 
+func (mt *Memtable) GetAll() *[]entry.Entry {
+	entries := mt.data.GetAll()
+	sort.Slice(entries[:], func(i, j int) bool {
+		return entries[i].Key < entries[j].Key
+	})
+	return &entries
+}
+
 func (mt *Memtable) Delete(key string) {
 	value, exists := mt.data.Get(key)
 	if exists {
@@ -88,13 +96,13 @@ func (mt *Memtable) Delete(key string) {
 		mt.data.Insert(value)
 	} else {
 		mt.data.Insert(entry.Entry{
-			Key: key,
-			KeySize: uint64(len(key)),
-			Value: make([]byte, 0),
+			Key:       key,
+			KeySize:   uint64(len(key)),
+			Value:     make([]byte, 0),
 			ValueSize: 0,
 			Tombstone: byte(1),
 			Timestamp: uint64(time.Now().Unix()),
-			CRC: uint32(entry.CRC32(append([]byte(key), value.Value...))),
+			CRC:       uint32(entry.CRC32(append([]byte(key), value.Value...))),
 		})
 	}
 }
@@ -104,10 +112,7 @@ func (mt *Memtable) Full() bool {
 }
 
 func (mt *Memtable) Flush() *[]entry.Entry {
-	entries := mt.data.GetAll()
-	sort.Slice(entries[:], func(i, j int) bool {
-		return entries[i].Key < entries[j].Key
-	})
+	entries := mt.GetAll()
 
 	if mt.structure == "map" {
 		mt.data = &MapWrapper{data: make(map[string]entry.Entry)}
@@ -123,5 +128,5 @@ func (mt *Memtable) Flush() *[]entry.Entry {
 	// 	ent.CRC = uint32(entry.CRC32(append([]byte(ent.Key), ent.Value...)))
 	// }
 
-	return &entries
+	return entries
 }

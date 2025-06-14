@@ -9,6 +9,7 @@ import (
 	"NASP-NoSQL-Engine/internal/sstable"
 	"NASP-NoSQL-Engine/internal/wal"
 	"bytes"
+	"encoding/binary"
 	"log"
 	"time"
 )
@@ -310,7 +311,7 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		filePath := "..-data-sstables-" + sst.SSTableName + "-data"
 		blockFileId := "sstables-" + sst.SSTableName + "-data"
 		currentBlockIndex := uint32(0) // kako budem upisivali blokove, povećavaćemo ovaj broj (nije pravi index unutar data.bin)
-		positionInBlock := uint32(4)   // počinje od 4 jer prva 4 byte-a ostavljamo za označavanje koji blok pripada kom delu (povećati ako ima >255 blokova)
+		positionInBlock := uint32(4)   // počinje od 4 jer prih 8 byte-a ostavljamo za označavanje koji blok pripada kom delu (4 dodata + 4 od BF jer se ne koriste)
 		wpo.BlockManager.BufferPool.AddBlock(block_manager.NewBufferBlock(blockFileId, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false))
 		currentBlock := wpo.BlockManager.BufferPool.GetBlock(blockFileId, currentBlockIndex)
 
@@ -341,7 +342,7 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		currentBlock = block_manager.NewBufferBlock(blockFileId, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
 
 		// upisuje se na kom bloku počinje data
-		wpo.BlockManager.BufferPool.GetBlock(blockFileId, 0).Data[0] = byte(currentBlockIndex)
+		binary.BigEndian.PutUint16(wpo.BlockManager.BufferPool.GetBlock(blockFileId, 0).Data[0:2], uint16(currentBlockIndex))
 
 		// iteriramo kroz sve enkodirane entrije i upisujemo ih u dataBlocks
 		for _, e := range encodedEntries {
@@ -448,18 +449,18 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 		// dobavljamo 1. blok da upišemo na kom bloku počinje index
 		currentBlock = wpo.BlockManager.BufferPool.GetBlock(blockFileId, 0)
-		currentBlock.Data[1] = byte(currentBlockIndex)
+		binary.BigEndian.PutUint16(currentBlock.Data[2:4], uint16(currentBlockIndex))
 
 		indexData := wpo.SSTableManager.CreateNONMergeIndex(indexTuples, sst.BlockSize)
 		summaryData := wpo.SSTableManager.CreateNONMergeSummary(indexTuples, indexData, compression, currentBlockIndex*sst.BlockSize)
 
 		wpo.BlockManager.WriteBytesAsBlocks(*indexData, filePath, currentBlockIndex)
 		currentBlockIndex += (uint32(len(*indexData)) + sst.BlockSize - 1) / sst.BlockSize // odlaže se povećanje indeksa da bi summary offset bio tačan
-		currentBlock.Data[2] = byte(currentBlockIndex)                                     // upisuje se na kom bloku počinje summary
+		binary.BigEndian.PutUint16(currentBlock.Data[4:6], uint16(currentBlockIndex))      // upisuje se na kom bloku počinje summary
 
 		wpo.BlockManager.WriteBytesAsBlocks(summaryData, filePath, currentBlockIndex)
 		currentBlockIndex += (uint32(len(summaryData)) + sst.BlockSize - 1) / sst.BlockSize
-		currentBlock.Data[3] = byte(currentBlockIndex) // upisuje se na kom bloku počinje merkle (metadata)
+		binary.BigEndian.PutUint16(currentBlock.Data[6:8], uint16(currentBlockIndex)) // upisuje se na kom bloku počinje merkle (metadata)
 
 		sst.Metadata.Build() // nakon dodavanja svih data blokova radi se build za merkle stablo
 		wpo.BlockManager.WriteBytesAsBlocks(*sst.Metadata.Serialize(), filePath, currentBlockIndex)

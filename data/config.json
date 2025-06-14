@@ -18,10 +18,14 @@
     "number_of_tables": 2,
     "structure": "map"
   },
+  "SCAN": {
+    "cache_size": 3,
+    "page_size": 2
+  },
   "SSTABLE": {
-    "COMPACTION": false,
-    "COMPRESSION": false,
-    "MERGE": false,
+    "COMPACTION": true,
+    "COMPRESSION": true,
+    "MERGE": true,
     "SSTABLE_MANAGER": {
       "capacity": 5
     },
@@ -39,7 +43,7 @@
   },
   "WAL": {
     "blocks_per_wal": 5,
-    "low_watermark": 0
+    "low_watermark": 1
   },
   "WAL_POOL": {
     "capacity": 5
