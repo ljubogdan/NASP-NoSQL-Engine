@@ -91,12 +91,12 @@ func (rs *RangeScan) NextPage() *[]entry.Entry {
 		}
 
 		if minIndex == -1 {
-			if rs.memtableEntries[0].Tombstone != 1 {
+			if rs.memtableEntries[0].Tombstone != 1 && len(rs.memtableEntries[0].Value) > 0 {
 				pageEntries = append(pageEntries, rs.memtableEntries[0])
 			}
 			rs.memtableEntries = rs.memtableEntries[1:]
 		} else {
-			if rs.sstableEntries[minIndex].Tombstone != 1 {
+			if rs.sstableEntries[minIndex].Tombstone != 1 && len(rs.sstableEntries[minIndex].Value) > 0 {
 				pageEntries = append(pageEntries, rs.sstableEntries[minIndex])
 			}
 			rs.FetchNextEntry(minIndex)
