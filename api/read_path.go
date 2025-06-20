@@ -99,10 +99,10 @@ func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 			}
 
 			var bfData []byte
-			for i := uint16(0); i < sectionIndexed[0]; i++ {
+			for i := sectionIndexed[0]; i < sectionIndexed[1]; i++ {
 				bfData = append(bfData, rpo.BlockManager.ReadBlock(dataPath, uint32(i), blockSize).Data...)
 			}
-			bloomFilter, err := probabilistics.DeserializeFromBytes_BF(StripPadding(bfData[8:]))
+			bloomFilter, err := probabilistics.DeserializeFromBytes_BF(StripPadding(bfData[4:]))
 			HandleError(err, "Failed to deserialize bloom filter")
 
 			if !bloomFilter.Contains([]byte(key)) {

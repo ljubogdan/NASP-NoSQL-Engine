@@ -73,8 +73,6 @@ func StartCLI() {
 
 	readPathObject := NewReadPath(blockManager, memtableManager, sstableManager)
 
-	deletePathObject := NewDeletePath(blockManager, walManager, memtableManager, sstableManager)
-
 	entries := writePathObject.BlockManager.GetEntriesFromLeftoverWals()
 	for _, entry := range entries {
 		memtableManager.InsertFromWAL(&entry)
@@ -123,7 +121,7 @@ func StartCLI() {
 		case "4\n":
 			returnValue = handlePrefixScan(readPathObject, tokenBucket)
 		case "5\n":
-			returnValue = handleDelete(deletePathObject, tokenBucket)
+			returnValue = handleDelete(writePathObject, tokenBucket)
 		case "6\n":
 			settings()
 		case "7\n":
@@ -267,7 +265,7 @@ func handlePrefixScan(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {
 	return 0
 }
 
-func handleDelete(dpo *DeletePath, tb *tokenbucket.TokenBucket) uint32 {
+func handleDelete(wpo *WritePath, tb *tokenbucket.TokenBucket) uint32 {
 	if !tb.Allow(1) {
 		return 6
 	}
@@ -282,20 +280,20 @@ func handleDelete(dpo *DeletePath, tb *tokenbucket.TokenBucket) uint32 {
 		return 1
 	}
 
-	returnValue := dpo.WriteEntryToWal(key, "")
+	returnValue := wpo.WriteEntryToWal(key, "")
 	if returnValue == 0 {
-		entries := dpo.MemtableManager.Delete(key)
+		entries := wpo.MemtableManager.Delete(key)
 
 		if len(*entries) > 0 {
-			dpo.BlockManager.AddCRCsToCRCList(*entries)
-			dpo.BlockManager.WriteFlushedCRCs()
+			wpo.BlockManager.AddCRCsToCRCList(*entries)
+			wpo.BlockManager.WriteFlushedCRCs()
 
-			returnValue = dpo.WriteEntriesToSSTable(entries)
+			returnValue = wpo.WriteEntriesToSSTable(entries)
 		}
 	}
 
 	// ako je entry prisutan u kešu samo se apdejtuje
-	dpo.BlockManager.CachePool.UpdateIfPresent(key, []byte("")) // alternativno dpo.BlockManager.CachePool.Delete(key) // potrebno apdejtovati dužine i ostale parametre ako ima potrebe
+	wpo.BlockManager.CachePool.UpdateIfPresent(key, []byte("")) // alternativno dpo.BlockManager.CachePool.Delete(key) // potrebno apdejtovati dužine i ostale parametre ako ima potrebe
 
 	return returnValue
 }

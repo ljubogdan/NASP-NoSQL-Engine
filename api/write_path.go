@@ -311,38 +311,9 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 		filePath := "..-data-sstables-" + sst.SSTableName + "-data"
 		blockFileId := "sstables-" + sst.SSTableName + "-data"
 		currentBlockIndex := uint32(0) // kako budem upisivali blokove, povećavaćemo ovaj broj (nije pravi index unutar data.bin)
-		positionInBlock := uint32(4)   // počinje od 4 jer prih 8 byte-a ostavljamo za označavanje koji blok pripada kom delu (4 dodata + 4 od BF jer se ne koriste)
+		positionInBlock := uint32(8)   // počinje od 8 jer prih 8 byte-a ostavljamo za označavanje koji blok pripada kom delu
 		wpo.BlockManager.BufferPool.AddBlock(block_manager.NewBufferBlock(blockFileId, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false))
 		currentBlock := wpo.BlockManager.BufferPool.GetBlock(blockFileId, currentBlockIndex)
-
-		for _, e := range *entries {
-			sst.BloomFilter.Add([]byte(e.Key))
-		}
-
-		var bfBuffer bytes.Buffer
-		sst.BloomFilter.Serialize(&bfBuffer)
-		bfData := bfBuffer.Bytes()
-		for _, b := range bfData {
-			for positionInBlock >= sst.BlockSize {
-				currentBlock.WrittenStatus = true
-				wpo.BlockManager.WriteBlock(filePath, currentBlock)
-				currentBlockIndex++
-				positionInBlock -= sst.BlockSize
-				currentBlock = block_manager.NewBufferBlock(blockFileId, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
-			}
-
-			currentBlock.Data[positionInBlock] = b
-			positionInBlock++
-		}
-
-		// treba preći na sledeći blok nakon upisa bloom filtera
-		wpo.BlockManager.WriteBlock(filePath, currentBlock)
-		currentBlockIndex++
-		positionInBlock = 0
-		currentBlock = block_manager.NewBufferBlock(blockFileId, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
-
-		// upisuje se na kom bloku počinje data
-		binary.BigEndian.PutUint16(wpo.BlockManager.BufferPool.GetBlock(blockFileId, 0).Data[0:2], uint16(currentBlockIndex))
 
 		// iteriramo kroz sve enkodirane entrije i upisujemo ih u dataBlocks
 		for _, e := range encodedEntries {
@@ -446,6 +417,35 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 			wpo.BlockManager.WriteNONMergeBlock(currentBlock)
 			currentBlockIndex++
 		}
+
+		// upisuje se na kom bloku počinje bloom filter
+		binary.BigEndian.PutUint16(wpo.BlockManager.BufferPool.GetBlock(blockFileId, 0).Data[0:2], uint16(currentBlockIndex))
+
+		for _, e := range *entries {
+			sst.BloomFilter.Add([]byte(e.Key))
+		}
+
+		var bfBuffer bytes.Buffer
+		sst.BloomFilter.Serialize(&bfBuffer)
+		bfData := bfBuffer.Bytes()
+		for _, b := range bfData {
+			for positionInBlock >= sst.BlockSize {
+				currentBlock.WrittenStatus = true
+				wpo.BlockManager.WriteBlock(filePath, currentBlock)
+				currentBlockIndex++
+				positionInBlock -= sst.BlockSize
+				currentBlock = block_manager.NewBufferBlock(blockFileId, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
+			}
+
+			currentBlock.Data[positionInBlock] = b
+			positionInBlock++
+		}
+
+		// treba preći na sledeći blok nakon upisa bloom filtera
+		wpo.BlockManager.WriteBlock(filePath, currentBlock)
+		currentBlockIndex++
+		positionInBlock = 0
+		currentBlock = block_manager.NewBufferBlock(blockFileId, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
 
 		// dobavljamo 1. blok da upišemo na kom bloku počinje index
 		currentBlock = wpo.BlockManager.BufferPool.GetBlock(blockFileId, 0)

@@ -24,8 +24,8 @@
   },
   "SSTABLE": {
     "COMPACTION": true,
-    "COMPRESSION": false,
-    "MERGE": false,
+    "COMPRESSION": true,
+    "MERGE": true,
     "SSTABLE_MANAGER": {
       "capacity": 5
     },
