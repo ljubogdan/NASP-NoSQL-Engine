@@ -54,6 +54,7 @@ func (sstm *SSTableManager) CreateSSTable() *SSTable {
 		sstm.BlockManager.WriteMerge(SSTablesPath+sstableName+"/merge", merge)
 		sstm.BlockManager.WriteMergeTOC(SSTablesPath + sstableName + "/toc")
 		sstm.BlockManager.WriteCompression(SSTablesPath+sstableName+"/compression", config.ReadCompression())
+		sstm.BlockManager.WriteLevel(SSTablesPath+sstableName+"/level", 0)
 
 		return &SSTable{
 			SSTableName:       sstableName,
@@ -66,6 +67,7 @@ func (sstm *SSTableManager) CreateSSTable() *SSTable {
 			MergeName:         "merge",
 			CompressionName:   "compression",
 			TOCName:           "toc",
+			Level:             0,
 
 			BloomFilter: probabilistics.NewBloomFilter(expectedElements, falsePositiveRate),
 			Metadata:    trees.NewMerkleTree(),
@@ -83,6 +85,7 @@ func (sstm *SSTableManager) CreateSSTable() *SSTable {
 		sstm.BlockManager.WriteMerge(SSTablesPath+sstableName+"/merge", merge)
 		sstm.BlockManager.WriteNONMergeTOC(SSTablesPath + sstableName + "/toc")
 		sstm.BlockManager.WriteCompression(SSTablesPath+sstableName+"/compression", config.ReadCompression())
+		sstm.BlockManager.WriteLevel(SSTablesPath+sstableName+"/level", 0)
 
 		return &SSTable{
 			SSTableName:       sstableName,
@@ -95,6 +98,7 @@ func (sstm *SSTableManager) CreateSSTable() *SSTable {
 			MergeName:         "merge",
 			CompressionName:   "compression",
 			TOCName:           "toc",
+			Level:             0,
 
 			BloomFilter: probabilistics.NewBloomFilter(expectedElements, falsePositiveRate),
 			Metadata:    trees.NewMerkleTree(),

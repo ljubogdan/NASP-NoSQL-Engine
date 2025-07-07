@@ -16,8 +16,7 @@ const (
 
 type SSTableManager struct { // LSM sistem
 	BlockManager *block_manager.BlockManager
-	Capacity     uint32
-	List         []*SSTable
+	Levels       [][]*SSTable
 }
 
 type IndexTuple struct {
@@ -39,6 +38,7 @@ type SSTable struct {
 	MergeName         string
 	CompressionName   string
 	TOCName           string
+	Level             uint16
 
 	BloomFilter *probabilistics.BloomFilter
 	Metadata    *trees.MerkleTree
@@ -64,21 +64,36 @@ func HandleError(err error, msg string) {
 }
 
 func NewSSTableManager() *SSTableManager {
-	return &SSTableManager{List: make([]*SSTable, 0), Capacity: 100000}
+	limit := config.ReadLevelLimit()
+	levels := make([][]*SSTable, limit)
+	for i := uint16(0); limit > i; i++ {
+		levels[0] = make([]*SSTable, 0)
+	}
+	return &SSTableManager{Levels: levels}
 }
 
 func (manager *SSTableManager) AddSSTable(sstable *SSTable) {
 	// LRU algoritam za izbacivanje, do kapaciteta punimo
-	if uint32(len(manager.List)) == manager.Capacity {
-		manager.List = manager.List[1:]
+	manager.Levels[sstable.Level] = append(manager.Levels[sstable.Level], sstable)
+}
+
+func (manager *SSTableManager) DeleteSSTable(filename string) {
+	for i := 0; i < len(manager.Levels); i++ {
+		for j := 0; j < len(manager.Levels[i]); j++ {
+			if manager.Levels[i][j].SSTableName == filename {
+				manager.Levels[i] = append(manager.Levels[i][:j], manager.Levels[i][j+1:]...)
+				os.RemoveAll(SSTablesPath + filename)
+			}
+		}
 	}
-	manager.List = append(manager.List, sstable)
 }
 
 func (manager *SSTableManager) Get(filename string) *SSTable { // vraća sstable po imenu npr "sstable_00003"
-	for _, sstable := range manager.List {
-		if sstable.SSTableName == filename {
-			return sstable
+	for _, level := range manager.Levels {
+		for _, sstable := range level {
+			if sstable.SSTableName == filename {
+				return sstable
+			}
 		}
 	}
 	return nil
@@ -214,7 +229,7 @@ func (sstm *SSTableManager) CreateNONMergeSummary(indexTuples []IndexTuple, inde
 
 // funkcija koja na početku programa prolazi kroz sstable folder i učitava sve sstable-ove u memoriju
 // odnosno kreira sstable objekte i dodaje ih u listu sstable-ova
-func (sstm *SSTableManager) LinkSSTable(sstableName string, dataName string, summaryName string, indexName string, metadataName string, bloomFilterName string, blockSizeFileName string, mergeName string, compressionName string, tocName string) {
+func (sstm *SSTableManager) LinkSSTable(sstableName string, dataName string, summaryName string, indexName string, metadataName string, bloomFilterName string, blockSizeFileName string, mergeName string, compressionName string, tocName string, level uint16) {
 	// pre nego što linkujemo moramo da pročitamo sve podatke iz fajlova sem bloom filtera, merkle stabla
 	// toc, indexa, summarija i data
 	// učitavamo block size, merge, compression
@@ -234,6 +249,7 @@ func (sstm *SSTableManager) LinkSSTable(sstableName string, dataName string, sum
 		MergeName:         mergeName,
 		CompressionName:   compressionName,
 		TOCName:           tocName,
+		Level:             level,
 
 		BlockSize:   blockSize,
 		Merge:       merge,
@@ -261,6 +277,7 @@ func (sstm *SSTableManager) LoadSSTables() {
 
 		// prolazimo kroz sve fajlove i linkujemo ih
 		var dataName, summaryName, indexName, metadataName, bloomFilterName, blockSizeFileName, mergeName, compressionName, tocName string
+		var level uint16
 		for _, file := range files {
 			switch file.Name() {
 			case "data":
@@ -281,21 +298,15 @@ func (sstm *SSTableManager) LoadSSTables() {
 				compressionName = file.Name()
 			case "toc":
 				tocName = file.Name()
+			case "level":
+				level = sstm.BlockManager.ReadLevel(SSTablesPath + folder.Name() + "/level")
 			}
 		}
 
 		// linkujemo sstable
-		sstm.LinkSSTable(folder.Name(), dataName, summaryName, indexName, metadataName, bloomFilterName, blockSizeFileName, mergeName, compressionName, tocName)
+		sstm.LinkSSTable(folder.Name(), dataName, summaryName, indexName, metadataName, bloomFilterName, blockSizeFileName, mergeName, compressionName, tocName, level)
 
 		// za svaki slučaj sortiramo od najmanjeg do najvećeg sstabele objekte prema sstable name
 		// npr. sstable_00001, sstable_00002, sstable_00003...
-
-		for i := 0; i < len(sstm.List); i++ {
-			for j := i + 1; j < len(sstm.List); j++ {
-				if sstm.List[i].SSTableName > sstm.List[j].SSTableName {
-					sstm.List[i], sstm.List[j] = sstm.List[j], sstm.List[i]
-				}
-			}
-		}
 	}
 }

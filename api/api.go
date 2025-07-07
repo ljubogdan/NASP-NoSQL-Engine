@@ -73,6 +73,8 @@ func StartCLI() {
 
 	readPathObject := NewReadPath(blockManager, memtableManager, sstableManager)
 
+	compaction := NewCompaction(readPathObject, writePathObject)
+
 	entries := writePathObject.BlockManager.GetEntriesFromLeftoverWals()
 	for _, entry := range entries {
 		memtableManager.InsertFromWAL(&entry)
@@ -91,6 +93,12 @@ func StartCLI() {
 		walManager.LowWatermark = config.ReadLowWatermark()
 		walManager.DeleteOldWals()
 		// =================================================================================================
+
+		iterators, level := compaction.CheckForCompaction()
+		for len(*iterators) > 0 {
+			compaction.Merge(*iterators, level)
+			iterators, level = compaction.CheckForCompaction()
+		}
 
 		//clearTerminal()
 		fmt.Println("\n" + bold + blue + "════════════════════════" + reset)
@@ -113,7 +121,7 @@ func StartCLI() {
 		choice, _ := reader.ReadString('\n')
 		switch choice {
 		case "1\n":
-			returnValue = handlePut(writePathObject)
+			returnValue = handlePut(writePathObject, compaction, tokenBucket)
 		case "2\n":
 			returnValue = handleGet(readPathObject, tokenBucket)
 		case "3\n":
@@ -121,7 +129,7 @@ func StartCLI() {
 		case "4\n":
 			returnValue = handlePrefixScan(readPathObject, tokenBucket)
 		case "5\n":
-			returnValue = handleDelete(writePathObject, tokenBucket)
+			returnValue = handleDelete(writePathObject, compaction, tokenBucket)
 		case "6\n":
 			settings()
 		case "7\n":
@@ -133,7 +141,11 @@ func StartCLI() {
 	}
 }
 
-func handlePut(wpo *WritePath) uint32 {
+func handlePut(wpo *WritePath, compaction *Compaction, tb *tokenbucket.TokenBucket) uint32 {
+	if !tb.Allow(1) {
+		return 6
+	}
+
 	fmt.Print(bold + "\n➤ Enter key: " + reset)
 	reader := bufio.NewReader(os.Stdin)
 	key, _ := reader.ReadString('\n')
@@ -164,6 +176,11 @@ func handlePut(wpo *WritePath) uint32 {
 			wpo.BlockManager.WriteFlushedCRCs()
 
 			returnValue = wpo.WriteEntriesToSSTable(entries)
+			iterators, level := compaction.CheckForCompaction()
+			for len(*iterators) > 0 {
+				compaction.Merge(*iterators, level)
+				iterators, level = compaction.CheckForCompaction()
+			}
 		}
 	}
 
@@ -265,7 +282,7 @@ func handlePrefixScan(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {
 	return 0
 }
 
-func handleDelete(wpo *WritePath, tb *tokenbucket.TokenBucket) uint32 {
+func handleDelete(wpo *WritePath, compaction *Compaction, tb *tokenbucket.TokenBucket) uint32 {
 	if !tb.Allow(1) {
 		return 6
 	}
@@ -289,6 +306,11 @@ func handleDelete(wpo *WritePath, tb *tokenbucket.TokenBucket) uint32 {
 			wpo.BlockManager.WriteFlushedCRCs()
 
 			returnValue = wpo.WriteEntriesToSSTable(entries)
+			iterators, level := compaction.CheckForCompaction()
+			for len(*iterators) > 0 {
+				compaction.Merge(*iterators, level)
+				iterators, level = compaction.CheckForCompaction()
+			}
 		}
 	}
 

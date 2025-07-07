@@ -19,6 +19,7 @@ type RangeScan struct {
 
 func NewRangeScan(rpo *ReadPath, min string, max string) *RangeScan {
 	sstIterators := *rpo.GetStartingIteratorsForRange(min, max)
+	fmt.Println(sstIterators)
 	sstEntries := make([]entry.Entry, len(sstIterators))
 	for i := 0; i < len(sstEntries); i++ {
 		if sstEntries[i].Key != sstIterators[i].LastKey {
@@ -115,6 +116,7 @@ func (rs *RangeScan) FetchNextEntry(iteratorIndex int) bool {
 		}
 	}
 
+	fmt.Println("Remove", rs.sstableEntries[iteratorIndex])
 	rs.sstableEntries = append(rs.sstableEntries[0:iteratorIndex], rs.sstableEntries[iteratorIndex+1:]...)
 	rs.iterators = append(rs.iterators[0:iteratorIndex], rs.iterators[iteratorIndex+1:]...)
 	return true

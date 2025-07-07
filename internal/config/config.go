@@ -176,3 +176,55 @@ func ReadPageCacheSize() uint32 {
 
 	return uint32(config["SCAN"].(map[string]interface{})["cache_size"].(float64))
 }
+
+func ReadLevelLimit() uint16 {
+	data, err := os.ReadFile(ConfigPath)
+	if err != nil {
+		return uint16(5)
+	}
+
+	var config map[string]interface{}
+	json.Unmarshal(data, &config)
+
+	return uint16(config["SSTABLE"].(map[string]interface{})["LEVEL_LIMIT"].(float64))
+}
+
+func ReadCompactionSize() uint32 {
+	data, err := os.ReadFile(ConfigPath)
+	if err != nil {
+		return 5
+	}
+
+	var config map[string]interface{}
+	json.Unmarshal(data, &config)
+
+	return uint32(config["SSTABLE"].(map[string]interface{})["COMPACTION"].(map[string]interface{})["size"].(float64))
+}
+
+func ReadCompactionMax() uint32 {
+	data, err := os.ReadFile(ConfigPath)
+	if err != nil {
+		return 5
+	}
+
+	var config map[string]interface{}
+	json.Unmarshal(data, &config)
+
+	return uint32(config["SSTABLE"].(map[string]interface{})["COMPACTION"].(map[string]interface{})["max"].(float64))
+}
+
+func ReadCompactionMethod() string {
+	data, err := os.ReadFile(ConfigPath)
+	if err != nil {
+		return "size_tired"
+	}
+
+	var config map[string]interface{}
+	json.Unmarshal(data, &config)
+
+	temp := config["SSTABLE"].(map[string]interface{})["COMPACTION"].(map[string]interface{})["method"].(string)
+	if temp == "size_tired" || temp == "leveled" {
+		return temp
+	}
+	return "size_tired"
+}

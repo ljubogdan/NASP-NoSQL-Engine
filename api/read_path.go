@@ -84,223 +84,227 @@ func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 	// prolazimo kroz svaku sstabelu i proveravamo prvo da li je sstabela mergeovana ili nije
 	// najviša sstabela je najnovija, pa prvo proveravamo nju, idemo unazad dakle
 
-	for i := len(rpo.SSTablesManager.List) - 1; i >= 0; i-- {
-		sstable := rpo.SSTablesManager.List[i]
-		folderPath := SSTablesPath + sstable.SSTableName + "/"
-		blockSize := rpo.BlockManager.ReadBlockSize(folderPath + sstable.BlockSizeFileName)
-		// ako je merge:
-		if sstable.Merge {
-			dataPath := folderPath + sstable.DataName
-			block := rpo.BlockManager.ReadBlock(dataPath, 0, blockSize)
+	for _, level := range rpo.SSTablesManager.Levels {
+		for i := len(level) - 1; i > -1; i-- {
+			sstable := level[i]
+			folderPath := SSTablesPath + sstable.SSTableName + "/"
+			blockSize := rpo.BlockManager.ReadBlockSize(folderPath + sstable.BlockSizeFileName)
+			// ako je merge:
+			if sstable.Merge {
+				dataPath := folderPath + sstable.DataName
+				block := rpo.BlockManager.ReadBlock(dataPath, 0, blockSize)
 
-			sectionIndexed := make([]uint16, 4)
-			for i := 0; i < 4; i++ {
-				sectionIndexed[i] = binary.BigEndian.Uint16(block.Data[i*2 : (i+1)*2])
-			}
+				sectionIndexed := make([]uint16, 4)
+				for i := 0; i < 4; i++ {
+					sectionIndexed[i] = binary.BigEndian.Uint16(block.Data[i*2 : (i+1)*2])
+				}
 
-			var bfData []byte
-			for i := sectionIndexed[0]; i < sectionIndexed[1]; i++ {
-				bfData = append(bfData, rpo.BlockManager.ReadBlock(dataPath, uint32(i), blockSize).Data...)
-			}
-			bloomFilter, err := probabilistics.DeserializeFromBytes_BF(StripPadding(bfData[4:]))
-			HandleError(err, "Failed to deserialize bloom filter")
+				var bfData []byte
+				for i := sectionIndexed[0]; i < sectionIndexed[1]; i++ {
+					bfData = append(bfData, rpo.BlockManager.ReadBlock(dataPath, uint32(i), blockSize).Data...)
+				}
+				bloomFilter, err := probabilistics.DeserializeFromBytes_BF(StripPadding(bfData[4:]))
+				HandleError(err, "Failed to deserialize bloom filter")
 
-			if !bloomFilter.Contains([]byte(key)) {
-				continue
-			}
-
-			// 1. blok summary dela
-			block = rpo.BlockManager.ReadBlock(dataPath, uint32(sectionIndexed[2]), blockSize)
-			offsetInBlock := 0
-
-			var minKey string
-			var maxKey string
-			lastOffset := uint64(blockSize) * uint64(sectionIndexed[1]) // pamti zadnji offset iz summary/index
-			jumped := false                                             // prati da li smo na idex delu
-
-			if sstable.Compression {
-				minKeyBytes := encoded_entry.ReadVarint(block.Data[offsetInBlock:])
-				minKeyVarint, err := encoded_entry.VarintToUint32(minKeyBytes)
-				HandleError(err, "Unable to read min key in summary of "+sstable.DataName)
-				minKey = rpo.BlockManager.BidirectionalMap.ReverseMap[minKeyVarint]
-				offsetInBlock += len(minKeyBytes) + 1
-
-				maxKeyBytes := encoded_entry.ReadVarint(block.Data[offsetInBlock:])
-				maxKeyVarint, err := encoded_entry.VarintToUint32(maxKeyBytes)
-				HandleError(err, "Unable to read max key in summary of "+sstable.DataName)
-				maxKey = rpo.BlockManager.BidirectionalMap.ReverseMap[maxKeyVarint]
-				offsetInBlock += len(minKeyBytes) + 1
-
-				if key < minKey || key > maxKey {
+				if !bloomFilter.Contains([]byte(key)) {
 					continue
 				}
 
-				for {
-					if offsetInBlock >= int(blockSize) {
-						offsetInBlock -= int(blockSize)
-						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
+				// 1. blok summary dela
+				block = rpo.BlockManager.ReadBlock(dataPath, uint32(sectionIndexed[2]), blockSize)
+				offsetInBlock := 0
+
+				var minKey string
+				var maxKey string
+				lastOffset := uint64(blockSize) * uint64(sectionIndexed[1]) // pamti zadnji offset iz summary/index
+				jumped := false                                             // prati da li smo na idex delu
+
+				if sstable.Compression {
+					minKeyBytes := encoded_entry.ReadVarint(block.Data[offsetInBlock:])
+					minKeyVarint, err := encoded_entry.VarintToUint32(minKeyBytes)
+					HandleError(err, "Unable to read min key in summary of "+sstable.DataName)
+					minKey = rpo.BlockManager.BidirectionalMap.ReverseMap[minKeyVarint]
+					offsetInBlock += len(minKeyBytes) + 1
+
+					maxKeyBytes := encoded_entry.ReadVarint(block.Data[offsetInBlock:])
+					maxKeyVarint, err := encoded_entry.VarintToUint32(maxKeyBytes)
+					HandleError(err, "Unable to read max key in summary of "+sstable.DataName)
+					maxKey = rpo.BlockManager.BidirectionalMap.ReverseMap[maxKeyVarint]
+					offsetInBlock += len(minKeyBytes) + 1
+
+					if key < minKey || key > maxKey {
+						continue
 					}
 
-					nextKeyBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
-					fmt.Println(nextKeyBytes)
-					offsetInBlock += len(nextKeyBytes) + 1
-					for !done {
-						offsetInBlock = 0
-						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
-						fragment, end := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
-						nextKeyBytes = append(nextKeyBytes, fragment...)
-						done = end
-						offsetInBlock = len(fragment) + 1
-					}
-					nextKeyVarint, err := encoded_entry.VarintToUint32(nextKeyBytes)
-					// HandleError(err, "Faild to read key")
-					if err != nil {
-						nextKeyVarint = 0
-					}
-					nextKey := rpo.BlockManager.BidirectionalMap.ReverseMap[nextKeyVarint]
-
-					nextOffsetBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
-					offsetInBlock += len(nextOffsetBytes) + 1
-					for !done {
-						offsetInBlock = 0
-						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
-						fragment, end := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
-						nextOffsetBytes = append(nextKeyBytes, fragment...)
-						done = end
-						offsetInBlock = len(fragment) + 1
-					}
-					nextOffset, err := encoded_entry.VarintToUint64(nextOffsetBytes)
-					// HandleError(err, "Faild to read offset")
-					if err != nil {
-						nextOffset = 0
-					}
-
-					if nextKey > key || nextKey < minKey || block.BlockNumber >= uint32(sectionIndexed[3]) {
-						if jumped {
-							break
+					for {
+						if offsetInBlock >= int(blockSize) {
+							offsetInBlock -= int(blockSize)
+							block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
 						}
 
-						block = rpo.BlockManager.ReadBlock(dataPath, uint32(lastOffset/uint64(blockSize)), blockSize)
-						offsetInBlock = int(lastOffset % uint64(blockSize))
-						jumped = true
-					} else {
-						lastOffset = nextOffset
-						minKey = nextKey // koristim minKeyVarint za pamćenje najbližeg ključa (čisto da ne pravim novu promenjivu)
+						nextKeyBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+						fmt.Println(nextKeyBytes)
+						offsetInBlock += len(nextKeyBytes) + 1
+						for !done {
+							offsetInBlock = 0
+							block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
+							fragment, end := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+							nextKeyBytes = append(nextKeyBytes, fragment...)
+							done = end
+							offsetInBlock = len(fragment) + 1
+						}
+						nextKeyVarint, err := encoded_entry.VarintToUint32(nextKeyBytes)
+						// HandleError(err, "Faild to read key")
+						if err != nil {
+							nextKeyVarint = 0
+						}
+						nextKey := rpo.BlockManager.BidirectionalMap.ReverseMap[nextKeyVarint]
+
+						nextOffsetBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+						offsetInBlock += len(nextOffsetBytes) + 1
+						for !done {
+							offsetInBlock = 0
+							block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
+							fragment, end := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+							nextOffsetBytes = append(nextOffsetBytes, fragment...)
+							done = end
+							offsetInBlock = len(fragment) + 1
+						}
+						nextOffset, err := encoded_entry.VarintToUint64(nextOffsetBytes)
+						// HandleError(err, "Faild to read offset")
+						if err != nil {
+							nextOffset = 0
+						}
+
+						if nextKey > key || nextKey < minKey || block.BlockNumber >= uint32(sectionIndexed[3]) {
+							if jumped {
+								break
+							}
+
+							block = rpo.BlockManager.ReadBlock(dataPath, uint32(lastOffset/uint64(blockSize)), blockSize)
+							offsetInBlock = int(lastOffset % uint64(blockSize))
+							jumped = true
+						} else {
+							lastOffset = nextOffset
+							minKey = nextKey // koristim minKeyVarint za pamćenje najbližeg ključa (čisto da ne pravim novu promenjivu)
+						}
 					}
+
+				} else {
+					minKeyBytes := ReadNullTerminatedString(block.Data[offsetInBlock:])
+					minKey = string(minKeyBytes)
+					offsetInBlock += len(minKeyBytes) + 1
+
+					maxKeyBytes := ReadNewlineTerminatedString(block.Data[offsetInBlock:])
+					maxKey = string(maxKeyBytes)
+					HandleError(err, "Unable to read max key in summary of "+sstable.DataName)
+					offsetInBlock += len(minKeyBytes) + 1
+
+					if key < minKey || key > maxKey {
+						continue
+					}
+
+					for {
+						if offsetInBlock >= int(blockSize) {
+							offsetInBlock = 0
+							block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
+						}
+
+						nextKeyBytes, done := ReadNullTerminatedStringBytes(block.Data[offsetInBlock:])
+						offsetInBlock += len(nextKeyBytes) + 1
+						for !done {
+							offsetInBlock = 0
+							block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
+							fragment, end := ReadNullTerminatedStringBytes(block.Data[offsetInBlock:])
+							nextKeyBytes = append(nextKeyBytes, fragment...)
+							done = end
+							offsetInBlock = len(fragment) + 1
+						}
+						nextKey := string(nextKeyBytes)
+
+						nextOffsetBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+						offsetInBlock += len(nextOffsetBytes) + 1
+						for !done {
+							offsetInBlock = 0
+							block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
+							fragment, end := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+							nextOffsetBytes = append(nextOffsetBytes, fragment...)
+							done = end
+							offsetInBlock = len(fragment) + 1
+						}
+						fmt.Println(nextOffsetBytes)
+						nextOffset, err := encoded_entry.VarintToUint64(nextOffsetBytes)
+						// HandleError(err, "Faild to read offset")
+						if err != nil {
+							nextOffset = 0
+						}
+
+						if nextKey > key || nextKey < minKey || block.BlockNumber >= uint32(sectionIndexed[3]) {
+							if jumped {
+								break
+							}
+
+							block = rpo.BlockManager.ReadBlock(dataPath, uint32(lastOffset/uint64(blockSize)), blockSize)
+							offsetInBlock = int(lastOffset % uint64(blockSize))
+							jumped = true
+						} else {
+							fmt.Println(nextOffset, nextKey)
+							lastOffset = nextOffset
+							minKey = nextKey // koristim minKeyVarint za pamćenje najbližeg ključa (čisto da ne pravim novu promenjivu)
+						}
+					}
+				}
+
+				// može se desiti da najbliži ključ nije onaj koji tražimo pa prelazimo na sledežći sstable
+				if minKey == key {
+					return rpo.FindInData(sstable.SSTableName, blockSize, uint32(lastOffset), sstable.Compression)
 				}
 
 			} else {
-				minKeyBytes := ReadNullTerminatedString(block.Data[offsetInBlock:])
-				minKey = string(minKeyBytes)
-				offsetInBlock += len(minKeyBytes) + 1
+				// za početak neophodno je proveriti u bloom filteru da li postoji entry sa zadatim ključem
+				bloomFilter := rpo.FindAndDeserializeNONMergeBF(sstable.SSTableName, sstable.BlockSize)
 
-				maxKeyBytes := ReadNewlineTerminatedString(block.Data[offsetInBlock:])
-				maxKey = string(maxKeyBytes)
-				HandleError(err, "Unable to read max key in summary of "+sstable.DataName)
-				offsetInBlock += len(minKeyBytes) + 1
-
-				if key < minKey || key > maxKey {
+				if !bloomFilter.Contains([]byte(key)) { // ako ne postoji u bloom filteru, sigurno ne postoji ni u sstabeli
 					continue
-				}
+				} else {
+					// slučaj da entry možda postoji u sstabeli
+					// dakle neophodno je učitati summary u memoriju i proveriti da li se ključ nalazi u tom opsegu
+					// prvo namtakodje treba informacija o tome da li se radi kompresija ili ne
 
-				for {
-					if offsetInBlock >= int(blockSize) {
-						offsetInBlock = 0
-						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
-					}
+					compression := sstable.Compression
 
-					nextKeyBytes, done := ReadNullTerminatedStringBytes(block.Data[offsetInBlock:])
-					offsetInBlock += len(nextKeyBytes) + 1
-					for !done {
-						offsetInBlock = 0
-						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
-						fragment, end := ReadNullTerminatedStringBytes(block.Data[offsetInBlock:])
-						nextKeyBytes = append(nextKeyBytes, fragment...)
-						done = end
-						offsetInBlock = len(fragment) + 1
-					}
-					nextKey := string(nextKeyBytes)
+					// učitavamo summary
+					summary := rpo.FindAndDeserializeNONMergeSummary(sstable.SSTableName, sstable.BlockSize, compression)
 
-					nextOffsetBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
-					offsetInBlock += len(nextOffsetBytes) + 1
-					for !done {
-						offsetInBlock = 0
-						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
-						fragment, end := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
-						nextOffsetBytes = append(nextKeyBytes, fragment...)
-						done = end
-						offsetInBlock = len(fragment) + 1
-					}
-					nextOffset, err := encoded_entry.VarintToUint64(nextOffsetBytes)
-					// HandleError(err, "Faild to read offset")
-					if err != nil {
-						nextOffset = 0
-					}
+					// printujemo kako izgleda summary ------------------------>>>>>> obrisati kasnije
+					summary.Print(compression)
 
-					if nextKey > key || nextKey < minKey || block.BlockNumber >= uint32(sectionIndexed[3]) {
-						if jumped {
-							break
-						}
+					// proveravamo da li se ključ nalazi u opsegu summarija (radimo sa string ili byte verzijom ključa)
+					stringLowerBound, stringUpperBound := rpo.SetBounds(key, summary, compression)
 
-						block = rpo.BlockManager.ReadBlock(dataPath, uint32(lastOffset/uint64(blockSize)), blockSize)
-						offsetInBlock = int(lastOffset % uint64(blockSize))
-						jumped = true
+					if key < stringLowerBound || key > stringUpperBound {
+						continue // ključ nije u opsegu summarija, idemo na sledeću sstabelu
 					} else {
-						lastOffset = nextOffset
-						minKey = nextKey // koristim minKeyVarint za pamćenje najbližeg ključa (čisto da ne pravim novu promenjivu)
+						// funkcija koja koriguje Bounds za pretragu
+						stringLowerBound = rpo.CorrectLowerBound(key, summary, compression)
+						stringUpperBound = rpo.CorrectUpperBound(key, summary, compression)
+						fmt.Println("Lower bound: ", stringLowerBound)
+						fmt.Println("Upper bound: ", stringUpperBound)
 					}
-				}
-			}
 
-			// može se desiti da najbliži ključ nije onaj koji tražimo pa prelazimo na sledežći sstable
-			if minKey == key {
-				return rpo.FindInData(sstable.SSTableName, blockSize, uint32(lastOffset), sstable.Compression)
-			}
+					// sada idemo u index strukturu i tražimo ključ
+					found, offset := rpo.FindInIndex(sstable.SSTableName, sstable.BlockSize, key, stringLowerBound, stringUpperBound, summary, compression)
 
-		} else {
-			// za početak neophodno je proveriti u bloom filteru da li postoji entry sa zadatim ključem
-			bloomFilter := rpo.FindAndDeserializeNONMergeBF(sstable.SSTableName, sstable.BlockSize)
+					fmt.Println("\nFound: ", found)
+					fmt.Println("Offset: ", offset)
+					fmt.Println()
 
-			if !bloomFilter.Contains([]byte(key)) { // ako ne postoji u bloom filteru, sigurno ne postoji ni u sstabeli
-				continue
-			} else {
-				// slučaj da entry možda postoji u sstabeli
-				// dakle neophodno je učitati summary u memoriju i proveriti da li se ključ nalazi u tom opsegu
-				// prvo namtakodje treba informacija o tome da li se radi kompresija ili ne
-
-				compression := sstable.Compression
-
-				// učitavamo summary
-				summary := rpo.FindAndDeserializeNONMergeSummary(sstable.SSTableName, sstable.BlockSize, compression)
-
-				// printujemo kako izgleda summary ------------------------>>>>>> obrisati kasnije
-				summary.Print(compression)
-
-				// proveravamo da li se ključ nalazi u opsegu summarija (radimo sa string ili byte verzijom ključa)
-				stringLowerBound, stringUpperBound := rpo.SetBounds(key, summary, compression)
-
-				if key < stringLowerBound || key > stringUpperBound {
-					continue // ključ nije u opsegu summarija, idemo na sledeću sstabelu
-				} else {
-					// funkcija koja koriguje Bounds za pretragu
-					stringLowerBound = rpo.CorrectLowerBound(key, summary, compression)
-					stringUpperBound = rpo.CorrectUpperBound(key, summary, compression)
-					fmt.Println("Lower bound: ", stringLowerBound)
-					fmt.Println("Upper bound: ", stringUpperBound)
-				}
-
-				// sada idemo u index strukturu i tražimo ključ
-				found, offset := rpo.FindInIndex(sstable.SSTableName, sstable.BlockSize, key, stringLowerBound, stringUpperBound, summary, compression)
-
-				fmt.Println("\nFound: ", found)
-				fmt.Println("Offset: ", offset)
-				fmt.Println()
-
-				if found {
-					// sada idemo u data strukturu i čitamo entry
-					return rpo.FindInData(sstable.SSTableName, sstable.BlockSize, offset, compression)
-				} else {
-					continue
+					if found {
+						// sada idemo u data strukturu i čitamo entry
+						return rpo.FindInData(sstable.SSTableName, sstable.BlockSize, offset, compression)
+					} else {
+						continue
+					}
 				}
 			}
 		}
@@ -445,21 +449,42 @@ func (rpo *ReadPath) FindInDataByIterator(iterator *sstable.SSTableIterator) (en
 	correctedOffset := iterator.Offset - toSubtract
 
 	crcVarint := encoded_entry.ReadVarint(block.Data[correctedOffset:])
+	crc, _ := encoded_entry.VarintToUint32(crcVarint)
+	// if err != nil {
+	// 	fmt.Println("Return 1")
+	// 	return entry.Entry{}, false
+	// }
 	correctedOffset += uint32(len(crcVarint))
+
 	timestampVarint := encoded_entry.ReadVarint(block.Data[correctedOffset:])
+	timestamp, _ := encoded_entry.VarintToUint64(timestampVarint)
+	// if err != nil {
+	// 	fmt.Println("Return 2")
+	// 	return entry.Entry{}, false
+	// }
 	correctedOffset += uint32(len(timestampVarint))
+
 	tombstoneVarint := encoded_entry.ReadVarint(block.Data[correctedOffset:])
+	tombstone := byte(tombstoneVarint[0])
 	correctedOffset += uint32(len(tombstoneVarint))
+
 	typeVarint := encoded_entry.ReadVarint(block.Data[correctedOffset:])
 	correctedOffset += uint32(len(typeVarint))
+
 	keySizeVarint := encoded_entry.ReadVarint(block.Data[correctedOffset:])
 	correctedOffset += uint32(len(keySizeVarint))
 
 	valueSizeVarint := []byte{}
+	valueSize := uint64(0)
 
 	// ako je tombstone 1 onda nema value size i value
 	if tombstoneVarint[0] != byte(1) {
 		valueSizeVarint = encoded_entry.ReadVarint(block.Data[correctedOffset:])
+		valueSize, _ = encoded_entry.VarintToUint64(valueSizeVarint)
+		// if err != nil {
+		// 	fmt.Println("Return 3")
+		// 	return entry.Entry{}, false
+		// }
 		correctedOffset += uint32(len(valueSizeVarint))
 	}
 
@@ -471,6 +496,7 @@ func (rpo *ReadPath) FindInDataByIterator(iterator *sstable.SSTableIterator) (en
 		keySize, err := encoded_entry.VarintToUint64(keySizeVarint)
 		if err != nil {
 			if iterator.Offset%iterator.BlockSize == 0 {
+				fmt.Println("Return 4")
 				return entry.Entry{}, false
 			} else {
 				iterator.Offset = ((iterator.Offset + (iterator.BlockSize - 1)) / iterator.BlockSize) * iterator.BlockSize
@@ -482,6 +508,7 @@ func (rpo *ReadPath) FindInDataByIterator(iterator *sstable.SSTableIterator) (en
 		keySize, err := encoded_entry.VarintToUint64(keySizeVarint)
 		if err != nil {
 			if iterator.Offset%iterator.BlockSize == 0 {
+				fmt.Println("Return 5")
 				return entry.Entry{}, false
 			} else {
 				iterator.Offset = ((iterator.Offset + (iterator.BlockSize - 1)) / iterator.BlockSize) * iterator.BlockSize
@@ -491,6 +518,7 @@ func (rpo *ReadPath) FindInDataByIterator(iterator *sstable.SSTableIterator) (en
 		valueSize, err := encoded_entry.VarintToUint64(valueSizeVarint)
 		if err != nil {
 			if iterator.Offset%iterator.BlockSize == 0 {
+				fmt.Println("Return 6")
 				return entry.Entry{}, false
 			} else {
 				iterator.Offset = ((iterator.Offset + (iterator.BlockSize - 1)) / iterator.BlockSize) * iterator.BlockSize
@@ -542,6 +570,7 @@ func (rpo *ReadPath) FindInDataByIterator(iterator *sstable.SSTableIterator) (en
 		keySize, err := encoded_entry.VarintToUint32(keySizeVarint)
 		if err != nil {
 			if iterator.Offset%iterator.BlockSize == 0 {
+				fmt.Println("Return 7")
 				return entry.Entry{}, false
 			} else {
 				iterator.Offset = ((iterator.Offset + (iterator.BlockSize - 1)) / iterator.BlockSize) * iterator.BlockSize
@@ -556,13 +585,14 @@ func (rpo *ReadPath) FindInDataByIterator(iterator *sstable.SSTableIterator) (en
 			keyUint32, err := encoded_entry.VarintToUint32(keyBytes)
 			HandleError(err, "Failed to convert varint to uint32")
 			key := rpo.BlockManager.BidirectionalMap.GetByUint32(keyUint32)
-			return entry.Entry{Key: key, Value: valueBytes}, true
+			return entry.Entry{Key: key, Value: valueBytes, ValueSize: valueSize, KeySize: uint64(keySize), Tombstone: tombstone, CRC: crc, Timestamp: timestamp}, true
 		} else {
-			return entry.Entry{Key: string(keyBytes), Value: valueBytes}, true
+			return entry.Entry{Key: string(keyBytes), Value: valueBytes, ValueSize: valueSize, KeySize: uint64(keySize), Tombstone: tombstone, CRC: crc, Timestamp: timestamp}, true
 		}
 	}
 
 	if iterator.Offset%iterator.BlockSize == 0 {
+		fmt.Println("Return 8")
 		return entry.Entry{}, false
 	} else {
 		iterator.Offset = ((iterator.Offset + (iterator.BlockSize - 1)) / iterator.BlockSize) * iterator.BlockSize
@@ -1049,8 +1079,225 @@ func (rpo *ReadPath) GetStartingIteratorsForRange(min string, max string) *[]sst
 	rpo.BlockManager.ReadBidirectionalMapFromFile() // priprema bidirekcione mape za rad
 	iterators := make([]sstable.SSTableIterator, 0)
 
-	for i := len(rpo.SSTablesManager.List) - 1; i >= 0; i-- {
-		sst := rpo.SSTablesManager.List[i]
+	for _, level := range rpo.SSTablesManager.Levels {
+		for i := len(level) - 1; i > -1; i-- {
+			sst := level[i]
+			folderPath := SSTablesPath + sst.SSTableName + "/"
+			blockSize := rpo.BlockManager.ReadBlockSize(folderPath + sst.BlockSizeFileName)
+
+			if sst.Merge {
+				dataPath := folderPath + sst.DataName
+				block := rpo.BlockManager.ReadBlock(dataPath, 0, blockSize)
+
+				sectionIndexed := make([]uint16, 4)
+				for i := 0; i < 4; i++ {
+					sectionIndexed[i] = binary.BigEndian.Uint16(block.Data[i*2 : (i+1)*2])
+				}
+
+				// 1. blok summary dela
+				block = rpo.BlockManager.ReadBlock(dataPath, uint32(sectionIndexed[2]), blockSize)
+				offsetInBlock := 0
+
+				var minKey string
+				var maxKey string
+				lastOffset := uint64(blockSize) * uint64(sectionIndexed[1]) // pamti zadnji offset iz summary/index
+				jumped := false                                             // prati da li smo na idex delu
+
+				if sst.Compression {
+					minKeyBytes := encoded_entry.ReadVarint(block.Data[offsetInBlock:])
+					minKeyVarint, err := encoded_entry.VarintToUint32(minKeyBytes)
+					HandleError(err, "Unable to read min key in summary of "+sst.DataName)
+					minKey = rpo.BlockManager.BidirectionalMap.ReverseMap[minKeyVarint]
+					offsetInBlock += len(minKeyBytes) + 1
+
+					maxKeyBytes := encoded_entry.ReadVarint(block.Data[offsetInBlock:])
+					maxKeyVarint, err := encoded_entry.VarintToUint32(maxKeyBytes)
+					HandleError(err, "Unable to read max key in summary of "+sst.DataName)
+					maxKey = rpo.BlockManager.BidirectionalMap.ReverseMap[maxKeyVarint]
+					offsetInBlock += len(minKeyBytes) + 1
+
+					if max < minKey || min > maxKey {
+						continue
+					}
+
+					for {
+						if offsetInBlock >= int(blockSize) {
+							offsetInBlock -= int(blockSize)
+							block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
+						}
+
+						nextKeyBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+						fmt.Println(nextKeyBytes)
+						offsetInBlock += len(nextKeyBytes) + 1
+						for !done {
+							offsetInBlock = 0
+							block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
+							fragment, end := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+							nextKeyBytes = append(nextKeyBytes, fragment...)
+							done = end
+							offsetInBlock = len(fragment) + 1
+						}
+						nextKeyVarint, err := encoded_entry.VarintToUint32(nextKeyBytes)
+						if err != nil {
+							nextKeyVarint = 0
+						}
+						nextKey := rpo.BlockManager.BidirectionalMap.ReverseMap[nextKeyVarint]
+
+						nextOffsetBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+						offsetInBlock += len(nextOffsetBytes) + 1
+						for !done {
+							offsetInBlock = 0
+							block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
+							fragment, end := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+							nextOffsetBytes = append(nextOffsetBytes, fragment...)
+							done = end
+							offsetInBlock = len(fragment) + 1
+						}
+						nextOffset, err := encoded_entry.VarintToUint64(nextOffsetBytes)
+						if err != nil {
+							nextOffset = 0
+						}
+
+						if nextKey > min || nextKey < minKey || block.BlockNumber >= uint32(sectionIndexed[3]) {
+							if jumped {
+								if minKey != min && nextKey >= min && !(block.BlockNumber >= uint32(sectionIndexed[3])) {
+									minKey = nextKey
+									lastOffset = nextOffset
+								}
+								break
+							}
+
+							block = rpo.BlockManager.ReadBlock(dataPath, uint32(lastOffset/uint64(blockSize)), blockSize)
+							offsetInBlock = int(lastOffset % uint64(blockSize))
+							jumped = true
+						} else {
+							fmt.Println(nextKey, nextOffset)
+							lastOffset = nextOffset
+							minKey = nextKey // koristim minKeyVarint za pamćenje najbližeg ključa (čisto da ne pravim novu promenjivu)
+						}
+					}
+
+				} else {
+					minKeyBytes := ReadNullTerminatedString(block.Data[offsetInBlock:])
+					minKey = string(minKeyBytes)
+					offsetInBlock += len(minKeyBytes) + 1
+
+					maxKeyBytes := ReadNewlineTerminatedString(block.Data[offsetInBlock:])
+					maxKey = string(maxKeyBytes)
+					offsetInBlock += len(minKeyBytes) + 1
+
+					if max < minKey || min > maxKey {
+						continue
+					}
+
+					for {
+						if offsetInBlock >= int(blockSize) {
+							offsetInBlock = 0
+							block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
+						}
+
+						nextKeyBytes, done := ReadNullTerminatedStringBytes(block.Data[offsetInBlock:])
+						offsetInBlock += len(nextKeyBytes) + 1
+						for !done {
+							offsetInBlock = 0
+							block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
+							fragment, end := ReadNullTerminatedStringBytes(block.Data[offsetInBlock:])
+							nextKeyBytes = append(nextKeyBytes, fragment...)
+							done = end
+							offsetInBlock = len(fragment) + 1
+						}
+						nextKey := string(nextKeyBytes)
+
+						nextOffsetBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+						offsetInBlock += len(nextOffsetBytes) + 1
+						for !done {
+							offsetInBlock = 0
+							block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
+							fragment, end := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
+							nextOffsetBytes = append(nextOffsetBytes, fragment...)
+							done = end
+							offsetInBlock = len(fragment) + 1
+						}
+						nextOffset, err := encoded_entry.VarintToUint64(nextOffsetBytes)
+						if err != nil {
+							nextOffset = 0
+						}
+
+						if nextKey > min || nextKey < minKey || block.BlockNumber >= uint32(sectionIndexed[3]) {
+							if jumped {
+								if minKey != min && nextKey >= min && !(block.BlockNumber >= uint32(sectionIndexed[3])) {
+									minKey = nextKey
+									lastOffset = nextOffset
+								}
+								break
+							}
+
+							block = rpo.BlockManager.ReadBlock(dataPath, uint32(lastOffset/uint64(blockSize)), blockSize)
+							offsetInBlock = int(lastOffset % uint64(blockSize))
+							jumped = true
+						} else {
+							lastOffset = nextOffset
+							minKey = nextKey // koristim minKeyVarint za pamćenje najbližeg ključa (čisto da ne pravim novu promenjivu)
+						}
+					}
+				}
+
+				// može se desiti da najbliži ključ nije unutar opsega (jeste veći od donje granice, ali je veći i od gornje)
+				if minKey <= max {
+					iterators = append(iterators, sstable.SSTableIterator{SSTableName: sst.SSTableName, Merge: sst.Merge, Compression: sst.Compression, BlockSize: blockSize, Offset: uint32(lastOffset), LastKey: maxKey})
+				}
+
+			} else {
+				// slučaj da entry možda postoji u sstabeli
+				// dakle neophodno je učitati summary u memoriju i proveriti da li se ključ nalazi u tom opsegu
+				// prvo namtakodje treba informacija o tome da li se radi kompresija ili ne
+
+				compression := sst.Compression
+
+				// učitavamo summary
+				summary := rpo.FindAndDeserializeNONMergeSummary(sst.SSTableName, sst.BlockSize, compression)
+
+				// printujemo kako izgleda summary ------------------------>>>>>> obrisati kasnije
+				summary.Print(compression)
+
+				// proveravamo da li se ključ nalazi u opsegu summarija (radimo sa string ili byte verzijom ključa)
+				stringLowerBound, stringUpperBound := rpo.SetBounds(min, summary, compression)
+
+				fmt.Println(summary.MaxKey, summary.MaxKey)
+				fmt.Println(stringLowerBound, stringUpperBound)
+				if max < stringLowerBound || min > stringUpperBound {
+					continue // ključ nije u opsegu summarija, idemo na sledeću sstabelu
+				} else {
+					// funkcija koja koriguje Bounds za pretragu
+					stringLowerBound = rpo.CorrectLowerBound(min, summary, compression)
+					stringUpperBound = rpo.CorrectUpperBound(min, summary, compression)
+					fmt.Println("Lower bound: ", stringLowerBound)
+					fmt.Println("Upper bound: ", stringUpperBound)
+				}
+
+				// sada idemo u index strukturu i tražimo ključ
+				found, offset := rpo.FindInIndex(sst.SSTableName, sst.BlockSize, min, stringLowerBound, stringUpperBound, summary, compression)
+
+				fmt.Println("\nFound: ", found)
+				fmt.Println("Offset: ", offset)
+				fmt.Println()
+
+				// if found {
+				iterators = append(iterators, sstable.SSTableIterator{SSTableName: sst.SSTableName, Merge: sst.Merge, Compression: compression, BlockSize: sst.BlockSize, Offset: uint32(offset), LastKey: string(summary.MaxKey)})
+				// }
+			}
+		}
+	}
+
+	return &iterators
+}
+
+func (rpo *ReadPath) GetStartingIteratorsForTables(tables *[]*sstable.SSTable) *[]sstable.SSTableIterator {
+	rpo.BlockManager.ReadBidirectionalMapFromFile() // priprema bidirekcione mape za rad
+	iterators := make([]sstable.SSTableIterator, 0)
+
+	for i := len(*tables) - 1; i > -1; i-- {
+		sst := (*tables)[i]
 		folderPath := SSTablesPath + sst.SSTableName + "/"
 		blockSize := rpo.BlockManager.ReadBlockSize(folderPath + sst.BlockSizeFileName)
 
@@ -1067,16 +1314,10 @@ func (rpo *ReadPath) GetStartingIteratorsForRange(min string, max string) *[]sst
 			block = rpo.BlockManager.ReadBlock(dataPath, uint32(sectionIndexed[2]), blockSize)
 			offsetInBlock := 0
 
-			var minKey string
 			var maxKey string
-			lastOffset := uint64(blockSize) * uint64(sectionIndexed[1]) // pamti zadnji offset iz summary/index
-			jumped := false                                             // prati da li smo na idex delu
 
 			if sst.Compression {
 				minKeyBytes := encoded_entry.ReadVarint(block.Data[offsetInBlock:])
-				minKeyVarint, err := encoded_entry.VarintToUint32(minKeyBytes)
-				HandleError(err, "Unable to read min key in summary of "+sst.DataName)
-				minKey = rpo.BlockManager.BidirectionalMap.ReverseMap[minKeyVarint]
 				offsetInBlock += len(minKeyBytes) + 1
 
 				maxKeyBytes := encoded_entry.ReadVarint(block.Data[offsetInBlock:])
@@ -1084,143 +1325,17 @@ func (rpo *ReadPath) GetStartingIteratorsForRange(min string, max string) *[]sst
 				HandleError(err, "Unable to read max key in summary of "+sst.DataName)
 				maxKey = rpo.BlockManager.BidirectionalMap.ReverseMap[maxKeyVarint]
 				offsetInBlock += len(minKeyBytes) + 1
-
-				if max < minKey || min > maxKey {
-					continue
-				}
-
-				for {
-					if offsetInBlock >= int(blockSize) {
-						offsetInBlock -= int(blockSize)
-						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
-					}
-
-					nextKeyBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
-					fmt.Println(nextKeyBytes)
-					offsetInBlock += len(nextKeyBytes) + 1
-					for !done {
-						offsetInBlock = 0
-						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
-						fragment, end := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
-						nextKeyBytes = append(nextKeyBytes, fragment...)
-						done = end
-						offsetInBlock = len(fragment) + 1
-					}
-					nextKeyVarint, err := encoded_entry.VarintToUint32(nextKeyBytes)
-					if err != nil {
-						nextKeyVarint = 0
-					}
-					nextKey := rpo.BlockManager.BidirectionalMap.ReverseMap[nextKeyVarint]
-
-					nextOffsetBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
-					offsetInBlock += len(nextOffsetBytes) + 1
-					for !done {
-						offsetInBlock = 0
-						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
-						fragment, end := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
-						nextOffsetBytes = append(nextKeyBytes, fragment...)
-						done = end
-						offsetInBlock = len(fragment) + 1
-					}
-					nextOffset, err := encoded_entry.VarintToUint64(nextOffsetBytes)
-					if err != nil {
-						nextOffset = 0
-					}
-
-					if nextKey > min || nextKey < minKey || block.BlockNumber >= uint32(sectionIndexed[3]) {
-						if jumped {
-							if minKey != min && nextKey >= min && !(block.BlockNumber >= uint32(sectionIndexed[3])) {
-								minKey = nextKey
-								lastOffset = nextOffset
-							}
-							break
-						}
-
-						block = rpo.BlockManager.ReadBlock(dataPath, uint32(lastOffset/uint64(blockSize)), blockSize)
-						offsetInBlock = int(lastOffset % uint64(blockSize))
-						jumped = true
-					} else {
-						fmt.Println(nextKey, nextOffset)
-						lastOffset = nextOffset
-						minKey = nextKey // koristim minKeyVarint za pamćenje najbližeg ključa (čisto da ne pravim novu promenjivu)
-					}
-				}
-
 			} else {
 				minKeyBytes := ReadNullTerminatedString(block.Data[offsetInBlock:])
-				minKey = string(minKeyBytes)
 				offsetInBlock += len(minKeyBytes) + 1
 
 				maxKeyBytes := ReadNewlineTerminatedString(block.Data[offsetInBlock:])
 				maxKey = string(maxKeyBytes)
 				offsetInBlock += len(minKeyBytes) + 1
-
-				if max < minKey || min > maxKey {
-					continue
-				}
-
-				for {
-					if offsetInBlock >= int(blockSize) {
-						offsetInBlock = 0
-						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
-					}
-
-					nextKeyBytes, done := ReadNullTerminatedStringBytes(block.Data[offsetInBlock:])
-					offsetInBlock += len(nextKeyBytes) + 1
-					for !done {
-						offsetInBlock = 0
-						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
-						fragment, end := ReadNullTerminatedStringBytes(block.Data[offsetInBlock:])
-						nextKeyBytes = append(nextKeyBytes, fragment...)
-						done = end
-						offsetInBlock = len(fragment) + 1
-					}
-					nextKey := string(nextKeyBytes)
-
-					nextOffsetBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
-					offsetInBlock += len(nextOffsetBytes) + 1
-					for !done {
-						offsetInBlock = 0
-						block = rpo.BlockManager.ReadBlock(dataPath, block.BlockNumber+1, blockSize)
-						fragment, end := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
-						nextOffsetBytes = append(nextKeyBytes, fragment...)
-						done = end
-						offsetInBlock = len(fragment) + 1
-					}
-					nextOffset, err := encoded_entry.VarintToUint64(nextOffsetBytes)
-					if err != nil {
-						nextOffset = 0
-					}
-
-					if nextKey > min || nextKey < minKey || block.BlockNumber >= uint32(sectionIndexed[3]) {
-						if jumped {
-							if minKey != min && nextKey >= min && !(block.BlockNumber >= uint32(sectionIndexed[3])) {
-								minKey = nextKey
-								lastOffset = nextOffset
-							}
-							break
-						}
-
-						block = rpo.BlockManager.ReadBlock(dataPath, uint32(lastOffset/uint64(blockSize)), blockSize)
-						offsetInBlock = int(lastOffset % uint64(blockSize))
-						jumped = true
-					} else {
-						lastOffset = nextOffset
-						minKey = nextKey // koristim minKeyVarint za pamćenje najbližeg ključa (čisto da ne pravim novu promenjivu)
-					}
-				}
 			}
 
-			// može se desiti da najbliži ključ nije unutar opsega (jeste veći od donje granice, ali je veći i od gornje)
-			if minKey <= max {
-				iterators = append(iterators, sstable.SSTableIterator{SSTableName: sst.SSTableName, Merge: sst.Merge, Compression: sst.Compression, BlockSize: blockSize, Offset: uint32(lastOffset), LastKey: maxKey})
-			}
-
+			iterators = append(iterators, sstable.SSTableIterator{SSTableName: sst.SSTableName, Merge: sst.Merge, Compression: sst.Compression, BlockSize: blockSize, Offset: 8, LastKey: maxKey})
 		} else {
-			// slučaj da entry možda postoji u sstabeli
-			// dakle neophodno je učitati summary u memoriju i proveriti da li se ključ nalazi u tom opsegu
-			// prvo namtakodje treba informacija o tome da li se radi kompresija ili ne
-
 			compression := sst.Compression
 
 			// učitavamo summary
@@ -1229,31 +1344,7 @@ func (rpo *ReadPath) GetStartingIteratorsForRange(min string, max string) *[]sst
 			// printujemo kako izgleda summary ------------------------>>>>>> obrisati kasnije
 			summary.Print(compression)
 
-			// proveravamo da li se ključ nalazi u opsegu summarija (radimo sa string ili byte verzijom ključa)
-			stringLowerBound, stringUpperBound := rpo.SetBounds(min, summary, compression)
-
-			fmt.Println(summary.MaxKey, summary.MaxKey)
-			fmt.Println(stringLowerBound, stringUpperBound)
-			if max < stringLowerBound || min > stringUpperBound {
-				continue // ključ nije u opsegu summarija, idemo na sledeću sstabelu
-			} else {
-				// funkcija koja koriguje Bounds za pretragu
-				stringLowerBound = rpo.CorrectLowerBound(min, summary, compression)
-				stringUpperBound = rpo.CorrectUpperBound(min, summary, compression)
-				fmt.Println("Lower bound: ", stringLowerBound)
-				fmt.Println("Upper bound: ", stringUpperBound)
-			}
-
-			// sada idemo u index strukturu i tražimo ključ
-			found, offset := rpo.FindInIndex(sst.SSTableName, sst.BlockSize, min, stringLowerBound, stringUpperBound, summary, compression)
-
-			fmt.Println("\nFound: ", found)
-			fmt.Println("Offset: ", offset)
-			fmt.Println()
-
-			// if found {
-			iterators = append(iterators, sstable.SSTableIterator{SSTableName: sst.SSTableName, Merge: sst.Merge, Compression: compression, BlockSize: sst.BlockSize, Offset: uint32(offset), LastKey: stringUpperBound})
-			// }
+			iterators = append(iterators, sstable.SSTableIterator{SSTableName: sst.SSTableName, Merge: sst.Merge, Compression: compression, BlockSize: sst.BlockSize, Offset: 0, LastKey: string(summary.MaxKey)})
 		}
 	}
 

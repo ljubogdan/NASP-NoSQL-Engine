@@ -23,8 +23,13 @@
     "page_size": 2
   },
   "SSTABLE": {
-    "COMPACTION": true,
-    "COMPRESSION": true,
+    "COMPACTION": {
+      "max": 5,
+      "method": "size_tired",
+      "size": 2
+    },
+    "COMPRESSION": false,
+    "LEVEL_LIMIT": 5,
     "MERGE": true,
     "SSTABLE_MANAGER": {
       "capacity": 5
