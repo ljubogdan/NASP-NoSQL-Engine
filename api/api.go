@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -48,6 +49,8 @@ func message(returnValue uint32) {
 		fmt.Print(bold + orange + "[OK] Entry with given key doesnt exist!" + reset)
 	case 6:
 		fmt.Print(bold + red + "[ERROR] Rate limit exceeded!" + reset)
+	case 7:
+		fmt.Print(bold + red + "[ERROR] Unknown identifier!" + reset)
 	default:
 		fmt.Print(bold + red + "[ERROR] Unknown error." + reset)
 	}
@@ -108,8 +111,9 @@ func StartCLI() {
 		fmt.Println(yellow + "3. RANGE SCAN (min, max)" + reset)
 		fmt.Println(yellow + "4. PREFIX SCAN (min, max)" + reset)
 		fmt.Println(yellow + "5. DELETE (key)" + reset)
-		fmt.Println(orange + "6. SETTINGS" + reset)
-		fmt.Println(red + "7. EXIT" + reset)
+		fmt.Println(orange + "6. CHECK (sstable)" + reset)
+		fmt.Println(orange + "7. SETTINGS" + reset)
+		fmt.Println(red + "8. EXIT" + reset)
 		fmt.Print("\n" + bold + blue + "════════════════════════\n\n" + reset)
 
 		fmt.Print("Status: ")
@@ -131,8 +135,10 @@ func StartCLI() {
 		case "5\n":
 			returnValue = handleDelete(writePathObject, compaction, tokenBucket)
 		case "6\n":
-			settings()
+			returnValue = handleCheck(readPathObject)
 		case "7\n":
+			settings()
+		case "8\n":
 			fmt.Println(bold + red + "\nExiting..." + reset)
 			return
 		default:
@@ -331,7 +337,7 @@ func handlePageIteration(rpo *ReadPath, rangeScan *RangeScan, inclusive bool) {
 		fmt.Println(bold + "\n➤ Page " + string(pageNum+48) + ": " + reset)
 		for i := 0; i < len(pageCache[cacheIndex]); i++ {
 			if pageCache[cacheIndex][i].Key != rangeScan.max || inclusive {
-				fmt.Print("\n   " + bold + string(i+49) + ". " + pageCache[cacheIndex][i].Key + ": " + string(pageCache[cacheIndex][i].Value) + reset)
+				fmt.Print("\n   " + bold + strconv.Itoa(i+1) + ". " + pageCache[cacheIndex][i].Key + ": " + string(pageCache[cacheIndex][i].Value) + reset)
 			}
 		}
 		fmt.Println()
@@ -389,6 +395,26 @@ func handlePageIteration(rpo *ReadPath, rangeScan *RangeScan, inclusive bool) {
 			message(4)
 		}
 	}
+}
+
+func handleCheck(rpo *ReadPath) uint32 {
+	fmt.Print(bold + "\n➤ Enter sstable name (folder name): " + reset)
+	reader := bufio.NewReader(os.Stdin)
+	name, _ := reader.ReadString('\n')
+
+	name = strings.TrimSpace(name)
+	table := rpo.SSTablesManager.Get(name)
+	if table == nil {
+		return 7
+	}
+
+	blockInexes := rpo.CheckIntegrity(table)
+	if len(blockInexes) == 0 {
+		fmt.Println("There was no change detected in sstable data")
+	} else {
+		fmt.Println("There appears to be a change in block(s) with index(es): ", blockInexes)
+	}
+	return 0
 }
 
 func settings() {

@@ -7,6 +7,7 @@ import (
 	"NASP-NoSQL-Engine/internal/memtable"
 	"NASP-NoSQL-Engine/internal/probabilistics"
 	"NASP-NoSQL-Engine/internal/sstable"
+	"NASP-NoSQL-Engine/internal/trees"
 	"encoding/binary"
 	"fmt"
 )
@@ -143,7 +144,6 @@ func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 						}
 
 						nextKeyBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
-						fmt.Println(nextKeyBytes)
 						offsetInBlock += len(nextKeyBytes) + 1
 						for !done {
 							offsetInBlock = 0
@@ -232,7 +232,6 @@ func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 							done = end
 							offsetInBlock = len(fragment) + 1
 						}
-						fmt.Println(nextOffsetBytes)
 						nextOffset, err := encoded_entry.VarintToUint64(nextOffsetBytes)
 						// HandleError(err, "Faild to read offset")
 						if err != nil {
@@ -248,7 +247,6 @@ func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 							offsetInBlock = int(lastOffset % uint64(blockSize))
 							jumped = true
 						} else {
-							fmt.Println(nextOffset, nextKey)
 							lastOffset = nextOffset
 							minKey = nextKey // koristim minKeyVarint za pamćenje najbližeg ključa (čisto da ne pravim novu promenjivu)
 						}
@@ -496,7 +494,6 @@ func (rpo *ReadPath) FindInDataByIterator(iterator *sstable.SSTableIterator) (en
 		keySize, err := encoded_entry.VarintToUint64(keySizeVarint)
 		if err != nil {
 			if iterator.Offset%iterator.BlockSize == 0 {
-				fmt.Println("Return 4")
 				return entry.Entry{}, false
 			} else {
 				iterator.Offset = ((iterator.Offset + (iterator.BlockSize - 1)) / iterator.BlockSize) * iterator.BlockSize
@@ -508,7 +505,6 @@ func (rpo *ReadPath) FindInDataByIterator(iterator *sstable.SSTableIterator) (en
 		keySize, err := encoded_entry.VarintToUint64(keySizeVarint)
 		if err != nil {
 			if iterator.Offset%iterator.BlockSize == 0 {
-				fmt.Println("Return 5")
 				return entry.Entry{}, false
 			} else {
 				iterator.Offset = ((iterator.Offset + (iterator.BlockSize - 1)) / iterator.BlockSize) * iterator.BlockSize
@@ -518,7 +514,6 @@ func (rpo *ReadPath) FindInDataByIterator(iterator *sstable.SSTableIterator) (en
 		valueSize, err := encoded_entry.VarintToUint64(valueSizeVarint)
 		if err != nil {
 			if iterator.Offset%iterator.BlockSize == 0 {
-				fmt.Println("Return 6")
 				return entry.Entry{}, false
 			} else {
 				iterator.Offset = ((iterator.Offset + (iterator.BlockSize - 1)) / iterator.BlockSize) * iterator.BlockSize
@@ -570,7 +565,6 @@ func (rpo *ReadPath) FindInDataByIterator(iterator *sstable.SSTableIterator) (en
 		keySize, err := encoded_entry.VarintToUint32(keySizeVarint)
 		if err != nil {
 			if iterator.Offset%iterator.BlockSize == 0 {
-				fmt.Println("Return 7")
 				return entry.Entry{}, false
 			} else {
 				iterator.Offset = ((iterator.Offset + (iterator.BlockSize - 1)) / iterator.BlockSize) * iterator.BlockSize
@@ -592,7 +586,6 @@ func (rpo *ReadPath) FindInDataByIterator(iterator *sstable.SSTableIterator) (en
 	}
 
 	if iterator.Offset%iterator.BlockSize == 0 {
-		fmt.Println("Return 8")
 		return entry.Entry{}, false
 	} else {
 		iterator.Offset = ((iterator.Offset + (iterator.BlockSize - 1)) / iterator.BlockSize) * iterator.BlockSize
@@ -1127,7 +1120,6 @@ func (rpo *ReadPath) GetStartingIteratorsForRange(min string, max string) *[]sst
 						}
 
 						nextKeyBytes, done := encoded_entry.ReadVarintBytes(block.Data[offsetInBlock:])
-						fmt.Println(nextKeyBytes)
 						offsetInBlock += len(nextKeyBytes) + 1
 						for !done {
 							offsetInBlock = 0
@@ -1171,7 +1163,6 @@ func (rpo *ReadPath) GetStartingIteratorsForRange(min string, max string) *[]sst
 							offsetInBlock = int(lastOffset % uint64(blockSize))
 							jumped = true
 						} else {
-							fmt.Println(nextKey, nextOffset)
 							lastOffset = nextOffset
 							minKey = nextKey // koristim minKeyVarint za pamćenje najbližeg ključa (čisto da ne pravim novu promenjivu)
 						}
@@ -1263,8 +1254,6 @@ func (rpo *ReadPath) GetStartingIteratorsForRange(min string, max string) *[]sst
 				// proveravamo da li se ključ nalazi u opsegu summarija (radimo sa string ili byte verzijom ključa)
 				stringLowerBound, stringUpperBound := rpo.SetBounds(min, summary, compression)
 
-				fmt.Println(summary.MaxKey, summary.MaxKey)
-				fmt.Println(stringLowerBound, stringUpperBound)
 				if max < stringLowerBound || min > stringUpperBound {
 					continue // ključ nije u opsegu summarija, idemo na sledeću sstabelu
 				} else {
@@ -1349,4 +1338,42 @@ func (rpo *ReadPath) GetStartingIteratorsForTables(tables *[]*sstable.SSTable) *
 	}
 
 	return &iterators
+}
+
+func (rpo *ReadPath) CheckIntegrity(sstable *sstable.SSTable) []uint16 {
+	path := SSTablesPath + sstable.SSTableName + "/"
+	currentBlock := rpo.BlockManager.ReadBlock(path+"/"+sstable.DataName, 0, sstable.BlockSize)
+	end := uint16((rpo.BlockManager.GetFileLength(path+"/"+sstable.DataName) + sstable.BlockSize - 1) / sstable.BlockSize)
+	merkleStart := uint16(0)
+	if sstable.Merge {
+		end = binary.BigEndian.Uint16(currentBlock.Data[0:2])
+		merkleStart = binary.BigEndian.Uint16(currentBlock.Data[6:8])
+		for i := 0; i < 8; i++ {
+			currentBlock.Data[i] = byte(0)
+		}
+	}
+
+	currentMerkle := trees.NewMerkleTree()
+	currentMerkle.AddBlock(&currentBlock.Data)
+	for i := uint16(1); i != end; i++ {
+		currentBlock = rpo.BlockManager.ReadBlock(path+"/"+sstable.DataName, uint32(i), sstable.BlockSize)
+		currentMerkle.AddBlock(&currentBlock.Data)
+	}
+	currentMerkle.Build()
+
+	var savedMerkleBytes []byte
+	if sstable.Merge {
+		merkleEnd := (rpo.BlockManager.GetFileLength(path+"/"+sstable.DataName) + sstable.BlockSize - 1) / sstable.BlockSize
+		for i := uint32(merkleStart); i < merkleEnd; i++ {
+			savedMerkleBytes = append(savedMerkleBytes, rpo.BlockManager.ReadBlock(path+"/"+sstable.DataName, i, sstable.BlockSize).Data...)
+		}
+	} else {
+		merkleEnd := (rpo.BlockManager.GetFileLength(path+"/"+sstable.MetadataName) + sstable.BlockSize - 1) / sstable.BlockSize
+		for i := uint32(0); i < merkleEnd; i++ {
+			savedMerkleBytes = append(savedMerkleBytes, rpo.BlockManager.ReadBlock(path+"/"+sstable.MetadataName, i, sstable.BlockSize).Data...)
+		}
+	}
+	savedMerkle := trees.Deserialize_MT(&savedMerkleBytes)
+
+	return currentMerkle.Compare(savedMerkle)
 }

@@ -420,6 +420,8 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 
 		// upisuje se na kom bloku počinje bloom filter
 		binary.BigEndian.PutUint16(wpo.BlockManager.BufferPool.GetBlock(blockFileId, 0).Data[0:2], uint16(currentBlockIndex))
+		currentBlock = block_manager.NewBufferBlock(blockFileId, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
+		positionInBlock = 0
 
 		for _, e := range *entries {
 			sst.BloomFilter.Add([]byte(e.Key))
@@ -615,6 +617,7 @@ func (wpo *WritePath) WriteEntriesToSSTable(entries *[]entry.Entry) uint32 {
 	}
 
 	// dodajemo sstable u listu svih sstabela
+	sst.Metadata = nil
 	wpo.SSTableManager.AddSSTable(sst)
 
 	return 0

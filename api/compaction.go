@@ -8,7 +8,6 @@ import (
 	"NASP-NoSQL-Engine/internal/sstable"
 	"bytes"
 	"encoding/binary"
-	"fmt"
 )
 
 type Compaction struct {
@@ -32,7 +31,6 @@ func (comp *Compaction) CheckForCompaction() (*[]sstable.SSTableIterator, uint16
 		fallthrough
 	case "size_tired":
 		for _, sstLevel := range comp.readPath.SSTablesManager.Levels {
-			fmt.Println(level, len(sstLevel))
 			level++
 			if len(sstLevel) >= int(comp.size) {
 				sstables = sstLevel[:comp.size]
@@ -220,6 +218,8 @@ func (comp *Compaction) Merge(iterators []sstable.SSTableIterator, level uint16)
 	if merge {
 		// upisuje se na kom bloku počinje bloom filter
 		binary.BigEndian.PutUint16(comp.writePath.BlockManager.BufferPool.GetBlock(blockFileId, 0).Data[0:2], uint16(currentBlockIndex))
+		currentBlock = block_manager.NewBufferBlock(blockFileId, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
+		positionInBlock = 0
 
 		var bfBuffer bytes.Buffer
 		sst.BloomFilter.Serialize(&bfBuffer)
@@ -247,9 +247,7 @@ func (comp *Compaction) Merge(iterators []sstable.SSTableIterator, level uint16)
 		currentBlock = comp.writePath.BlockManager.BufferPool.GetBlock(blockFileId, 0)
 		binary.BigEndian.PutUint16(currentBlock.Data[2:4], uint16(currentBlockIndex))
 
-		fmt.Println(indexTuples)
 		indexData := comp.writePath.SSTableManager.CreateNONMergeIndex(indexTuples, sst.BlockSize)
-		fmt.Println(indexData)
 		summaryData := comp.writePath.SSTableManager.CreateNONMergeSummary(indexTuples, indexData, compression, currentBlockIndex*sst.BlockSize)
 
 		comp.writePath.BlockManager.WriteBytesAsBlocks(*indexData, filePath, currentBlockIndex)
@@ -282,6 +280,7 @@ func (comp *Compaction) Merge(iterators []sstable.SSTableIterator, level uint16)
 	}
 
 	// dodajemo sstable u listu svih sstabela
+	sst.Metadata = nil
 	sst.Level = level
 	comp.writePath.BlockManager.WriteLevel(SSTablesPath+sst.SSTableName+"/level", level)
 	comp.writePath.SSTableManager.AddSSTable(sst)
