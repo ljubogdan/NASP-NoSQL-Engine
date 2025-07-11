@@ -18,24 +18,23 @@ func CalculateM_CMS(epsilon float64) uint {
 }
 
 // K --> broj hash funkcija, delta --> greška
-// (PRIM.) d = 0.1 (10%) --> šansa je 10% da epsilon predje 10% 
+// (PRIM.) d = 0.1 (10%) --> šansa je 10% da epsilon predje 10%
 func CalculateK_CMS(delta float64) uint {
 	return uint(math.Ceil(math.Log(math.E / delta)))
 }
 
-
 type CountMinSketch struct {
-	matrix [][]uint32
+	matrix        [][]uint32
 	hashFunctions []HashWithSeed
-	width uint32
-	depth uint32
+	width         uint32
+	depth         uint32
 }
 
 func NewCountMinSketch(epsilon float64, delta float64) *CountMinSketch {
 	width := uint32(CalculateM_CMS(epsilon))
 	depth := uint32(CalculateK_CMS(delta))
 
-	matrix := make([][]uint32, depth) 
+	matrix := make([][]uint32, depth)
 	for i := range matrix {
 		matrix[i] = make([]uint32, width)
 	}
@@ -43,17 +42,17 @@ func NewCountMinSketch(epsilon float64, delta float64) *CountMinSketch {
 	hashFunctions := GenerateHashFunctions(depth)
 
 	return &CountMinSketch{
-		matrix:       matrix,
-        hashFunctions: hashFunctions,
-        width:        width,
-        depth:        depth,
+		matrix:        matrix,
+		hashFunctions: hashFunctions,
+		width:         width,
+		depth:         depth,
 	}
 }
 
 func (cms *CountMinSketch) Add(data string) {
 	for i, hashFunction := range cms.hashFunctions {
 		index := hashFunction.Hash([]byte(data)) % uint64(cms.width)
-		cms.matrix[i][index] ++	
+		cms.matrix[i][index]++
 	}
 }
 
@@ -105,7 +104,6 @@ func (cms *CountMinSketch) Serialize(buffer *bytes.Buffer) error {
 
 	return nil
 }
-
 
 func (cms *CountMinSketch) SerializeToFile(filename string) error {
 	var buffer bytes.Buffer
@@ -182,4 +180,44 @@ func DeserializeFromFile_CMS(filename string) (*CountMinSketch, error) {
 	return cms, nil
 }
 
+func DeserializeFromBytes_CMS(data []byte) (*CountMinSketch, error) {
+	reader := bytes.NewReader(data)
+	cms := &CountMinSketch{}
 
+	var depth uint32
+	if err := binary.Read(reader, binary.BigEndian, &depth); err != nil {
+		return nil, err
+	}
+	cms.depth = depth
+
+	var width uint32
+	if err := binary.Read(reader, binary.BigEndian, &width); err != nil {
+		return nil, err
+	}
+	cms.width = width
+
+	cms.matrix = make([][]uint32, depth)
+	for i := uint32(0); i < depth; i++ {
+		cms.matrix[i] = make([]uint32, width)
+		for j := uint32(0); j < width; j++ {
+			if err := binary.Read(reader, binary.BigEndian, &cms.matrix[i][j]); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	var hashFunctionCount uint32
+	if err := binary.Read(reader, binary.BigEndian, &hashFunctionCount); err != nil {
+		return nil, err
+	}
+	cms.hashFunctions = make([]HashWithSeed, hashFunctionCount)
+	for i := uint32(0); i < hashFunctionCount; i++ {
+		seed := make([]byte, 4)
+		if _, err := reader.Read(seed); err != nil {
+			return nil, err
+		}
+		cms.hashFunctions[i] = HashWithSeed{Seed: seed}
+	}
+
+	return cms, nil
+}

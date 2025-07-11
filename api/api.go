@@ -5,10 +5,12 @@ import (
 	"NASP-NoSQL-Engine/internal/config"
 	"NASP-NoSQL-Engine/internal/entry"
 	"NASP-NoSQL-Engine/internal/memtable"
+	"NASP-NoSQL-Engine/internal/probabilistics"
 	"NASP-NoSQL-Engine/internal/sstable"
 	"NASP-NoSQL-Engine/internal/tokenbucket"
 	"NASP-NoSQL-Engine/internal/wal"
 	"bufio"
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -114,6 +116,12 @@ func StartCLI() {
 		fmt.Println(orange + "6. CHECK (sstable)" + reset)
 		fmt.Println(orange + "7. SETTINGS" + reset)
 		fmt.Println(red + "8. EXIT" + reset)
+		fmt.Println(yellow + "9. HLL ADD" + reset)
+		fmt.Println(yellow + "10. HLL COUNT" + reset)
+		fmt.Println(yellow + "11. BF ADD" + reset)
+		fmt.Println(yellow + "12. BF CHECK" + reset)
+		fmt.Println(yellow + "13. CMS ADD" + reset)
+		fmt.Println(yellow + "14. CMS COUNT" + reset)
 		fmt.Print("\n" + bold + blue + "════════════════════════\n\n" + reset)
 
 		fmt.Print("Status: ")
@@ -141,6 +149,18 @@ func StartCLI() {
 		case "8\n":
 			fmt.Println(bold + red + "\nExiting..." + reset)
 			return
+		case "9\n":
+			returnValue = handleHLLAdd(writePathObject, readPathObject, compaction, tokenBucket)
+		case "10\n":
+			returnValue = handleHLLCount(readPathObject, tokenBucket)
+		case "11\n":
+			returnValue = handleBFAdd(writePathObject, readPathObject, compaction, tokenBucket)
+		case "12\n":
+			returnValue = handleBFCheck(readPathObject, tokenBucket)
+		case "13\n":
+			returnValue = handleCMSAdd(writePathObject, readPathObject, compaction, tokenBucket)
+		case "14\n":
+			returnValue = handleCMSCount(readPathObject, tokenBucket)
 		default:
 			returnValue = 4
 		}
@@ -171,29 +191,7 @@ func handlePut(wpo *WritePath, compaction *Compaction, tb *tokenbucket.TokenBuck
 		return 2
 	}
 
-	returnValue := wpo.WriteEntryToWal(key, value) // upisuje u wal
-	if returnValue == 0 {
-		entries := wpo.MemtableManager.Insert(key, []byte(value)) // upisuje u memtable
-
-		// ako je dužina entrija veća od nula:
-		if len(*entries) > 0 {
-			// upisujemo CRC-ove u block manager listu
-			wpo.BlockManager.AddCRCsToCRCList(*entries)
-			wpo.BlockManager.WriteFlushedCRCs()
-
-			returnValue = wpo.WriteEntriesToSSTable(entries)
-			iterators, level := compaction.CheckForCompaction()
-			for len(*iterators) > 0 {
-				compaction.Merge(*iterators, level)
-				iterators, level = compaction.CheckForCompaction()
-			}
-		}
-	}
-
-	// ako je entry prisutan u kešu samo se apdejtuje
-	wpo.BlockManager.CachePool.UpdateIfPresent(key, []byte(value))
-
-	return returnValue
+	return putValue(wpo, compaction, key, []byte(value))
 }
 
 func handleGet(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {
@@ -334,7 +332,7 @@ func handlePageIteration(rpo *ReadPath, rangeScan *RangeScan, inclusive bool) {
 	cacheIndex := 0
 	pageCache[cacheIndex] = *rangeScan.NextPage()
 	for true {
-		fmt.Println(bold + "\n➤ Page " + string(pageNum+48) + ": " + reset)
+		fmt.Println(bold + "\n➤ Page " + strconv.Itoa(pageNum) + ": " + reset)
 		for i := 0; i < len(pageCache[cacheIndex]); i++ {
 			if pageCache[cacheIndex][i].Key != rangeScan.max || inclusive {
 				fmt.Print("\n   " + bold + strconv.Itoa(i+1) + ". " + pageCache[cacheIndex][i].Key + ": " + string(pageCache[cacheIndex][i].Value) + reset)
@@ -419,4 +417,236 @@ func handleCheck(rpo *ReadPath) uint32 {
 
 func settings() {
 	fmt.Println(bold + orange + "\nSettings selected!" + reset)
+}
+
+func putValue(wpo *WritePath, compaction *Compaction, key string, value []byte) uint32 {
+	returnValue := wpo.WriteEntryToWal(key, string(value))
+	if returnValue == 0 {
+		entries := wpo.MemtableManager.Insert(key, value)
+
+		if len(*entries) > 0 {
+			wpo.BlockManager.AddCRCsToCRCList(*entries)
+			wpo.BlockManager.WriteFlushedCRCs()
+
+			returnValue = wpo.WriteEntriesToSSTable(entries)
+			iterators, level := compaction.CheckForCompaction()
+			for len(*iterators) > 0 {
+				compaction.Merge(*iterators, level)
+				iterators, level = compaction.CheckForCompaction()
+			}
+		}
+	}
+
+	wpo.BlockManager.CachePool.UpdateIfPresent(key, value)
+	return returnValue
+}
+
+// ----------------------------- HyperLogLog -----------------------------
+func handleHLLAdd(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *tokenbucket.TokenBucket) uint32 {
+	if !tb.Allow(1) {
+		return 6
+	}
+
+	fmt.Print(bold + "\n➤ Enter key: " + reset)
+	reader := bufio.NewReader(os.Stdin)
+	key, _ := reader.ReadString('\n')
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return 1
+	}
+
+	fmt.Print(bold + "\n➤ Enter element: " + reset)
+	val, _ := reader.ReadString('\n')
+	val = strings.TrimSpace(val)
+	if val == "" {
+		return 2
+	}
+
+	result, exists := rpo.ReadEntry(key)
+	var hll *probabilistics.HyperLogLog
+	if exists && len(result.Value) > 0 {
+		data := result.Value
+		hll = probabilistics.Deserialize_HLL(&data)
+	} else {
+		hll = probabilistics.NewHyperLogLog(16)
+	}
+
+	hll.Add([]byte(val))
+	serialized := hll.Serialize()
+	return putValue(wpo, compaction, key, *serialized)
+}
+
+func handleHLLCount(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {
+	if !tb.Allow(1) {
+		return 6
+	}
+
+	fmt.Print(bold + "\n➤ Enter key: " + reset)
+	reader := bufio.NewReader(os.Stdin)
+	key, _ := reader.ReadString('\n')
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return 1
+	}
+
+	result, exists := rpo.ReadEntry(key)
+	if !exists || len(result.Value) == 0 {
+		fmt.Println(bold + "\n➤ Count: 0" + reset)
+		return 0
+	}
+	data := result.Value
+	hll := probabilistics.Deserialize_HLL(&data)
+	fmt.Printf(bold+"\n➤ Count: %.0f"+reset+"\n", hll.Estimate())
+	return 0
+}
+
+// ----------------------------- Bloom Filter -----------------------------
+func handleBFAdd(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *tokenbucket.TokenBucket) uint32 {
+	if !tb.Allow(1) {
+		return 6
+	}
+
+	fmt.Print(bold + "\n➤ Enter key: " + reset)
+	reader := bufio.NewReader(os.Stdin)
+	key, _ := reader.ReadString('\n')
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return 1
+	}
+
+	fmt.Print(bold + "\n➤ Enter value: " + reset)
+	val, _ := reader.ReadString('\n')
+	val = strings.TrimSpace(val)
+	if val == "" {
+		return 2
+	}
+
+	result, exists := rpo.ReadEntry(key)
+	var bf *probabilistics.BloomFilter
+	if exists && len(result.Value) > 4 {
+		var err error
+		bf, err = probabilistics.DeserializeFromBytes_BF(result.Value[4:])
+		if err != nil {
+			bf = probabilistics.NewBloomFilter(config.ReadBloomFilterExpectedElements(), config.ReadBloomFilterFalsePositiveRate())
+		}
+	} else {
+		bf = probabilistics.NewBloomFilter(config.ReadBloomFilterExpectedElements(), config.ReadBloomFilterFalsePositiveRate())
+	}
+
+	bf.Add([]byte(val))
+	var buffer bytes.Buffer
+	bf.Serialize(&buffer)
+	return putValue(wpo, compaction, key, buffer.Bytes())
+}
+
+func handleBFCheck(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {
+	if !tb.Allow(1) {
+		return 6
+	}
+
+	fmt.Print(bold + "\n➤ Enter key: " + reset)
+	reader := bufio.NewReader(os.Stdin)
+	key, _ := reader.ReadString('\n')
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return 1
+	}
+
+	fmt.Print(bold + "\n➤ Enter value: " + reset)
+	val, _ := reader.ReadString('\n')
+	val = strings.TrimSpace(val)
+	if val == "" {
+		return 2
+	}
+
+	result, exists := rpo.ReadEntry(key)
+	if !exists || len(result.Value) <= 4 {
+		fmt.Println(bold + "\n➤ Result: false" + reset)
+		return 0
+	}
+	bf, err := probabilistics.DeserializeFromBytes_BF(result.Value[4:])
+	if err != nil {
+		fmt.Println(bold + "\n➤ Result: false" + reset)
+		return 0
+	}
+	if bf.Contains([]byte(val)) {
+		fmt.Println(bold + "\n➤ Result: true" + reset)
+	} else {
+		fmt.Println(bold + "\n➤ Result: false" + reset)
+	}
+	return 0
+}
+
+// ----------------------------- Count-Min Sketch -----------------------------
+func handleCMSAdd(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *tokenbucket.TokenBucket) uint32 {
+	if !tb.Allow(1) {
+		return 6
+	}
+
+	fmt.Print(bold + "\n➤ Enter key: " + reset)
+	reader := bufio.NewReader(os.Stdin)
+	key, _ := reader.ReadString('\n')
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return 1
+	}
+
+	fmt.Print(bold + "\n➤ Enter value: " + reset)
+	val, _ := reader.ReadString('\n')
+	val = strings.TrimSpace(val)
+	if val == "" {
+		return 2
+	}
+
+	result, exists := rpo.ReadEntry(key)
+	var cms *probabilistics.CountMinSketch
+	if exists && len(result.Value) > 0 {
+		var err error
+		cms, err = probabilistics.DeserializeFromBytes_CMS(result.Value)
+		if err != nil {
+			cms = probabilistics.NewCountMinSketch(0.01, 0.01)
+		}
+	} else {
+		cms = probabilistics.NewCountMinSketch(0.01, 0.01)
+	}
+
+	cms.Add(val)
+	var buffer bytes.Buffer
+	cms.Serialize(&buffer)
+	return putValue(wpo, compaction, key, buffer.Bytes())
+}
+
+func handleCMSCount(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {
+	if !tb.Allow(1) {
+		return 6
+	}
+
+	fmt.Print(bold + "\n➤ Enter key: " + reset)
+	reader := bufio.NewReader(os.Stdin)
+	key, _ := reader.ReadString('\n')
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return 1
+	}
+
+	fmt.Print(bold + "\n➤ Enter value: " + reset)
+	val, _ := reader.ReadString('\n')
+	val = strings.TrimSpace(val)
+	if val == "" {
+		return 2
+	}
+
+	result, exists := rpo.ReadEntry(key)
+	if !exists || len(result.Value) == 0 {
+		fmt.Println(bold + "\n➤ Count: 0" + reset)
+		return 0
+	}
+	cms, err := probabilistics.DeserializeFromBytes_CMS(result.Value)
+	if err != nil {
+		fmt.Println(bold + "\n➤ Count: 0" + reset)
+		return 0
+	}
+	count := cms.Count(val)
+	fmt.Printf(bold+"\n➤ Count: %d"+reset+"\n", count)
+	return 0
 }
