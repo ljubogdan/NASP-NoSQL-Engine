@@ -8,6 +8,7 @@ import (
 	"NASP-NoSQL-Engine/internal/sstable"
 	"bytes"
 	"encoding/binary"
+	"os"
 )
 
 type Compaction struct {
@@ -24,8 +25,8 @@ func NewCompaction(rpo *ReadPath, wpo *WritePath) *Compaction {
 
 func (comp *Compaction) CheckForCompaction() (*[]sstable.SSTableIterator, uint16) {
 	sstables := make([]*sstable.SSTable, 0)
-
 	level := uint16(0)
+
 	switch comp.method {
 	default:
 		fallthrough
@@ -37,12 +38,26 @@ func (comp *Compaction) CheckForCompaction() (*[]sstable.SSTableIterator, uint16
 				break
 			}
 		}
+		return comp.readPath.GetStartingIteratorsForTables(&sstables), min(level, uint16(len(comp.readPath.SSTablesManager.Levels)-1))
+
+	case "leveled":
+		for _, sstLevel := range comp.readPath.SSTablesManager.Levels {
+			level++
+			if len(sstLevel) >= int(comp.size) {
+				sstables = sstLevel[:comp.size]
+				break
+			}
+		}
+
+		level = min(level, uint16(len(comp.readPath.SSTablesManager.Levels)-1))
+		return comp.readPath.GetOverlapingIterators(&sstables, level), level
 	}
 
-	return comp.readPath.GetStartingIteratorsForTables(&sstables), min(level, uint16(len(comp.readPath.SSTablesManager.Levels)-1))
 }
 
 func (comp *Compaction) Merge(iterators []sstable.SSTableIterator, level uint16) {
+	comp.writePath.BlockManager.ReadBidirectionalMapFromFile()
+
 	sstEntries := make([]entry.Entry, len(iterators))
 	for i := 0; i < len(sstEntries); i++ {
 		if sstEntries[i].Key != iterators[i].LastKey {
@@ -58,9 +73,8 @@ func (comp *Compaction) Merge(iterators []sstable.SSTableIterator, level uint16)
 		iterators = append(iterators[0:i], iterators[i+1:]...)
 	}
 
-	comp.writePath.BlockManager.ReadBidirectionalMapFromFile()
-
 	sst := comp.writePath.SSTableManager.CreateSSTable()
+	sstName := iterators[len(iterators)-1].SSTableName
 	compression := sst.Compression
 	merge := sst.Merge
 
@@ -217,6 +231,10 @@ func (comp *Compaction) Merge(iterators []sstable.SSTableIterator, level uint16)
 
 	if merge {
 		// upisuje se na kom bloku počinje bloom filter
+		if comp.writePath.BlockManager.BufferPool.GetBlock(blockFileId, 0) != nil {
+			comp.writePath.BlockManager.BufferPool.AddBlock(comp.writePath.BlockManager.ReadBlock(SSTablesPath+sst.SSTableName+"/"+sst.DataName, 0, sst.BlockSize))
+		}
+
 		binary.BigEndian.PutUint16(comp.writePath.BlockManager.BufferPool.GetBlock(blockFileId, 0).Data[0:2], uint16(currentBlockIndex))
 		currentBlock = block_manager.NewBufferBlock(blockFileId, currentBlockIndex, make([]byte, sst.BlockSize), sst.BlockSize, false)
 		positionInBlock = 0
@@ -283,5 +301,14 @@ func (comp *Compaction) Merge(iterators []sstable.SSTableIterator, level uint16)
 	sst.Metadata = nil
 	sst.Level = level
 	comp.writePath.BlockManager.WriteLevel(SSTablesPath+sst.SSTableName+"/level", level)
+	if comp.method == "leveled" {
+		os.Rename(SSTablesPath+sst.SSTableName, SSTablesPath+sstName)
+		sst.SSTableName = sstName
+	}
+	for i := uint32(0); i < currentBlockIndex; i++ {
+		if comp.writePath.BlockManager.BufferPool.GetBlock("sstables-"+sst.SSTableName+"-data", 0) != nil {
+			comp.writePath.BlockManager.BufferPool.AddBlock(comp.writePath.BlockManager.ReadBlock(SSTablesPath+sst.SSTableName+"/"+sst.DataName, 0, sst.BlockSize))
+		}
+	}
 	comp.writePath.SSTableManager.AddSSTable(sst)
 }

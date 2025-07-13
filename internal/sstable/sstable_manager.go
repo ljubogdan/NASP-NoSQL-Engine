@@ -64,9 +64,9 @@ func HandleError(err error, msg string) {
 }
 
 func NewSSTableManager() *SSTableManager {
-	limit := config.ReadLevelLimit()
+	limit := config.ReadCompactionMax()
 	levels := make([][]*SSTable, limit)
-	for i := uint16(0); limit > i; i++ {
+	for i := uint32(0); limit > i; i++ {
 		levels[0] = make([]*SSTable, 0)
 	}
 	return &SSTableManager{Levels: levels}
@@ -74,6 +74,12 @@ func NewSSTableManager() *SSTableManager {
 
 func (manager *SSTableManager) AddSSTable(sstable *SSTable) {
 	// LRU algoritam za izbacivanje, do kapaciteta punimo
+	for i := 0; i < len(manager.Levels[sstable.Level]); i++ {
+		if manager.Levels[sstable.Level][i].SSTableName > sstable.SSTableName {
+			manager.Levels[sstable.Level] = append(manager.Levels[sstable.Level], append([]*SSTable{sstable}, manager.Levels[sstable.Level][i:]...)...)
+			return
+		}
+	}
 	manager.Levels[sstable.Level] = append(manager.Levels[sstable.Level], sstable)
 }
 
@@ -304,7 +310,7 @@ func (sstm *SSTableManager) LoadSSTables() {
 		}
 
 		// linkujemo sstable
-		sstm.LinkSSTable(folder.Name(), dataName, summaryName, indexName, metadataName, bloomFilterName, blockSizeFileName, mergeName, compressionName, tocName, level)
+		sstm.LinkSSTable(folder.Name(), dataName, summaryName, indexName, metadataName, bloomFilterName, blockSizeFileName, mergeName, compressionName, tocName, min(level, uint16(len(sstm.Levels)-1)))
 
 		// za svaki slučaj sortiramo od najmanjeg do najvećeg sstabele objekte prema sstable name
 		// npr. sstable_00001, sstable_00002, sstable_00003...

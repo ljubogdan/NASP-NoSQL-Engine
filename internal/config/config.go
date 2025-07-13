@@ -177,18 +177,6 @@ func ReadPageCacheSize() uint32 {
 	return uint32(config["SCAN"].(map[string]interface{})["cache_size"].(float64))
 }
 
-func ReadLevelLimit() uint16 {
-	data, err := os.ReadFile(ConfigPath)
-	if err != nil {
-		return uint16(5)
-	}
-
-	var config map[string]interface{}
-	json.Unmarshal(data, &config)
-
-	return uint16(config["SSTABLE"].(map[string]interface{})["LEVEL_LIMIT"].(float64))
-}
-
 func ReadCompactionSize() uint32 {
 	data, err := os.ReadFile(ConfigPath)
 	if err != nil {

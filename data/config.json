@@ -25,15 +25,11 @@
   "SSTABLE": {
     "COMPACTION": {
       "max": 5,
-      "method": "size_tired",
-      "size": 2
+      "method": "leveled",
+      "size": 5
     },
-    "COMPRESSION": true,
-    "LEVEL_LIMIT": 5,
-    "MERGE": false,
-    "SSTABLE_MANAGER": {
-      "capacity": 5
-    },
+    "COMPRESSION": false,
+    "MERGE": true,
     "SSTABLE_SUMMARY": {
       "thinning": 2
     }
@@ -52,7 +48,7 @@
   },
   "WAL": {
     "blocks_per_wal": 5,
-    "low_watermark": 6
+    "low_watermark": 1
   },
   "WAL_POOL": {
     "capacity": 5

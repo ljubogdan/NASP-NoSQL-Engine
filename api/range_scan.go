@@ -4,7 +4,6 @@ import (
 	"NASP-NoSQL-Engine/internal/config"
 	"NASP-NoSQL-Engine/internal/entry"
 	"NASP-NoSQL-Engine/internal/sstable"
-	"fmt"
 )
 
 type RangeScan struct {
@@ -19,7 +18,6 @@ type RangeScan struct {
 
 func NewRangeScan(rpo *ReadPath, min string, max string) *RangeScan {
 	sstIterators := *rpo.GetStartingIteratorsForRange(min, max)
-	fmt.Println(sstIterators)
 	sstEntries := make([]entry.Entry, len(sstIterators))
 	for i := 0; i < len(sstEntries); i++ {
 		if sstEntries[i].Key != sstIterators[i].LastKey {
@@ -52,7 +50,6 @@ func NewRangeScan(rpo *ReadPath, min string, max string) *RangeScan {
 	} else {
 		memtbEntries = make([]entry.Entry, 0)
 	}
-	fmt.Println(memtbEntries)
 
 	return &RangeScan{
 		ReadPathObject:  rpo,
@@ -69,10 +66,6 @@ func (rs *RangeScan) NextPage() *[]entry.Entry {
 	pageEntries := make([]entry.Entry, 0)
 
 	for (len(rs.memtableEntries) > 0 || len(rs.sstableEntries) > 0) && len(pageEntries) < int(rs.pageSize) {
-		for i := 0; i < len(rs.sstableEntries); i++ {
-			fmt.Println(rs.iterators[i].SSTableName + " " + rs.sstableEntries[i].Key)
-		}
-		fmt.Println()
 		min := ""
 		minIndex := 0
 		if len(rs.memtableEntries) > 0 {
@@ -116,7 +109,6 @@ func (rs *RangeScan) FetchNextEntry(iteratorIndex int) bool {
 		}
 	}
 
-	fmt.Println("Remove", rs.sstableEntries[iteratorIndex])
 	rs.sstableEntries = append(rs.sstableEntries[0:iteratorIndex], rs.sstableEntries[iteratorIndex+1:]...)
 	rs.iterators = append(rs.iterators[0:iteratorIndex], rs.iterators[iteratorIndex+1:]...)
 	return true
