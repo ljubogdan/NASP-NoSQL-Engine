@@ -135,7 +135,7 @@ func StartCLI() {
 		case "1\n":
 			returnValue = handlePut(writePathObject, compaction, tokenBucket)
 		case "2\n":
-			returnValue = handleGet(readPathObject, tokenBucket)
+			returnValue = handleGet(writePathObject, readPathObject, compaction, tokenBucket)
 		case "3\n":
 			returnValue = handleRangeScan(readPathObject, tokenBucket)
 		case "4\n":
@@ -182,6 +182,61 @@ func handlePut(wpo *WritePath, compaction *Compaction, tb *tokenbucket.TokenBuck
 		return 1
 	}
 
+	if strings.HasPrefix(key, "bf_") {
+		fmt.Print(bold + "\n➤ Expected elements: " + reset)
+		eStr, _ := reader.ReadString('\n')
+		eStr = strings.TrimSpace(eStr)
+		expected, err := strconv.Atoi(eStr)
+		if err != nil || expected <= 0 {
+			return 1
+		}
+		fmt.Print(bold + "\n➤ False positive rate: " + reset)
+		fpStr, _ := reader.ReadString('\n')
+		fpStr = strings.TrimSpace(fpStr)
+		fp, err := strconv.ParseFloat(fpStr, 64)
+		if err != nil {
+			return 1
+		}
+		bf := probabilistics.NewBloomFilter(uint32(expected), fp)
+		var buffer bytes.Buffer
+		bf.Serialize(&buffer)
+		return putValue(wpo, compaction, key, buffer.Bytes())
+	}
+
+	if strings.HasPrefix(key, "hll_") {
+		fmt.Print(bold + "\n➤ Precision: " + reset)
+		pStr, _ := reader.ReadString('\n')
+		pStr = strings.TrimSpace(pStr)
+		prec, err := strconv.Atoi(pStr)
+		if err != nil {
+			return 1
+		}
+		hll := probabilistics.NewHyperLogLog(uint8(prec))
+		serialized := hll.Serialize()
+		return putValue(wpo, compaction, key, *serialized)
+	}
+
+	if strings.HasPrefix(key, "cms_") {
+		fmt.Print(bold + "\n➤ Epsilon: " + reset)
+		epsStr, _ := reader.ReadString('\n')
+		epsStr = strings.TrimSpace(epsStr)
+		epsilon, err := strconv.ParseFloat(epsStr, 64)
+		if err != nil {
+			return 1
+		}
+		fmt.Print(bold + "\n➤ Delta: " + reset)
+		dStr, _ := reader.ReadString('\n')
+		dStr = strings.TrimSpace(dStr)
+		delta, err := strconv.ParseFloat(dStr, 64)
+		if err != nil {
+			return 1
+		}
+		cms := probabilistics.NewCountMinSketch(epsilon, delta)
+		var buffer bytes.Buffer
+		cms.Serialize(&buffer)
+		return putValue(wpo, compaction, key, buffer.Bytes())
+	}
+
 	fmt.Print(bold + "\n➤ Enter value: " + reset)
 
 	value, _ := reader.ReadString('\n')
@@ -194,7 +249,7 @@ func handlePut(wpo *WritePath, compaction *Compaction, tb *tokenbucket.TokenBuck
 	return putValue(wpo, compaction, key, []byte(value))
 }
 
-func handleGet(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {
+func handleGet(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *tokenbucket.TokenBucket) uint32 {
 	if !tb.Allow(1) {
 		return 6
 	}
@@ -210,19 +265,142 @@ func handleGet(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {
 	}
 
 	result, exists := rpo.ReadEntry(key)
-	if exists {
-		// ubacujemo entry u key cache
-		rpo.BlockManager.CachePool.Add(&block_manager.CacheEntry{Key: key, Value: result.Value})
+	if !exists {
+		return 5
+	}
 
-		if len(result.Value) == 0 {
-			return 5 // ako je entry prazan, vraćamo 5
+	rpo.BlockManager.CachePool.Add(&block_manager.CacheEntry{Key: key, Value: result.Value})
+
+	if strings.HasPrefix(key, "bf_") {
+		var bf *probabilistics.BloomFilter
+		if len(result.Value) > 4 {
+			var err error
+			bf, err = probabilistics.DeserializeFromBytes_BF(result.Value[4:])
+			if err != nil {
+				bf = probabilistics.NewBloomFilter(config.ReadBloomFilterExpectedElements(), config.ReadBloomFilterFalsePositiveRate())
+			}
+		} else {
+			bf = probabilistics.NewBloomFilter(config.ReadBloomFilterExpectedElements(), config.ReadBloomFilterFalsePositiveRate())
 		}
 
-		fmt.Println(bold + "\n➤ Result: " + string(result.Value) + reset)
-
-		return 0
+		fmt.Println("\n1. ADD")
+		fmt.Println("2. CHECK")
+		fmt.Println("3. EXIT")
+		fmt.Print(bold + "\n➤ Enter choice: " + reset)
+		choice, _ := reader.ReadString('\n')
+		switch choice {
+		case "1\n":
+			fmt.Print(bold + "\n➤ Enter value: " + reset)
+			val, _ := reader.ReadString('\n')
+			val = strings.TrimSpace(val)
+			if val == "" {
+				return 2
+			}
+			bf.Add([]byte(val))
+			var buffer bytes.Buffer
+			bf.Serialize(&buffer)
+			return putValue(wpo, compaction, key, buffer.Bytes())
+		case "2\n":
+			fmt.Print(bold + "\n➤ Enter value: " + reset)
+			val, _ := reader.ReadString('\n')
+			val = strings.TrimSpace(val)
+			if val == "" {
+				return 2
+			}
+			if bf.Contains([]byte(val)) {
+				fmt.Println(bold + "\n➤ Result: true" + reset)
+			} else {
+				fmt.Println(bold + "\n➤ Result: false" + reset)
+			}
+			return 0
+		default:
+			return 0
+		}
 	}
-	return 5
+
+	if strings.HasPrefix(key, "hll_") {
+		var hll *probabilistics.HyperLogLog
+		if len(result.Value) > 0 {
+			data := result.Value
+			hll = probabilistics.Deserialize_HLL(&data)
+		} else {
+			hll = probabilistics.NewHyperLogLog(16)
+		}
+
+		fmt.Println("\n1. ADD")
+		fmt.Println("2. COUNT")
+		fmt.Println("3. EXIT")
+		fmt.Print(bold + "\n➤ Enter choice: " + reset)
+		choice, _ := reader.ReadString('\n')
+		switch choice {
+		case "1\n":
+			fmt.Print(bold + "\n➤ Enter element: " + reset)
+			val, _ := reader.ReadString('\n')
+			val = strings.TrimSpace(val)
+			if val == "" {
+				return 2
+			}
+			hll.Add([]byte(val))
+			serialized := hll.Serialize()
+			return putValue(wpo, compaction, key, *serialized)
+		case "2\n":
+			fmt.Printf(bold+"\n➤ Count: %.0f"+reset+"\n", hll.Estimate())
+			return 0
+		default:
+			return 0
+		}
+	}
+
+	if strings.HasPrefix(key, "cms_") {
+		var cms *probabilistics.CountMinSketch
+		if len(result.Value) > 0 {
+			var err error
+			cms, err = probabilistics.DeserializeFromBytes_CMS(result.Value)
+			if err != nil {
+				cms = probabilistics.NewCountMinSketch(0.01, 0.01)
+			}
+		} else {
+			cms = probabilistics.NewCountMinSketch(0.01, 0.01)
+		}
+
+		fmt.Println("\n1. ADD")
+		fmt.Println("2. COUNT")
+		fmt.Println("3. EXIT")
+		fmt.Print(bold + "\n➤ Enter choice: " + reset)
+		choice, _ := reader.ReadString('\n')
+		switch choice {
+		case "1\n":
+			fmt.Print(bold + "\n➤ Enter value: " + reset)
+			val, _ := reader.ReadString('\n')
+			val = strings.TrimSpace(val)
+			if val == "" {
+				return 2
+			}
+			cms.Add(val)
+			var buffer bytes.Buffer
+			cms.Serialize(&buffer)
+			return putValue(wpo, compaction, key, buffer.Bytes())
+		case "2\n":
+			fmt.Print(bold + "\n➤ Enter value: " + reset)
+			val, _ := reader.ReadString('\n')
+			val = strings.TrimSpace(val)
+			if val == "" {
+				return 2
+			}
+			count := cms.Count(val)
+			fmt.Printf(bold+"\n➤ Count: %d"+reset+"\n", count)
+			return 0
+		default:
+			return 0
+		}
+	}
+
+	if len(result.Value) == 0 {
+		return 5
+	}
+
+	fmt.Println(bold + "\n➤ Result: " + string(result.Value) + reset)
+	return 0
 }
 
 func handleRangeScan(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {

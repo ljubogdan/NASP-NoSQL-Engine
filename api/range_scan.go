@@ -4,6 +4,7 @@ import (
 	"NASP-NoSQL-Engine/internal/config"
 	"NASP-NoSQL-Engine/internal/entry"
 	"NASP-NoSQL-Engine/internal/sstable"
+	"strings"
 )
 
 type RangeScan struct {
@@ -14,6 +15,10 @@ type RangeScan struct {
 	pageSize        uint32
 	min             string
 	max             string
+}
+
+func isBuiltinKey(key string) bool {
+	return strings.HasPrefix(key, "bf_") || strings.HasPrefix(key, "hll_") || strings.HasPrefix(key, "cms_")
 }
 
 func NewRangeScan(rpo *ReadPath, min string, max string) *RangeScan {
@@ -85,15 +90,23 @@ func (rs *RangeScan) NextPage() *[]entry.Entry {
 		}
 
 		if minIndex == -1 {
-			if rs.memtableEntries[0].Tombstone != 1 && len(rs.memtableEntries[0].Value) > 0 {
-				pageEntries = append(pageEntries, rs.memtableEntries[0])
-			}
+			e := rs.memtableEntries[0]
 			rs.memtableEntries = rs.memtableEntries[1:]
-		} else {
-			if rs.sstableEntries[minIndex].Tombstone != 1 && len(rs.sstableEntries[minIndex].Value) > 0 {
-				pageEntries = append(pageEntries, rs.sstableEntries[minIndex])
+			if isBuiltinKey(e.Key) {
+				continue
 			}
+			if e.Tombstone != 1 && len(e.Value) > 0 {
+				pageEntries = append(pageEntries, e)
+			}
+		} else {
+			e := rs.sstableEntries[minIndex]
 			rs.FetchNextEntry(minIndex)
+			if isBuiltinKey(e.Key) {
+				continue
+			}
+			if e.Tombstone != 1 && len(e.Value) > 0 {
+				pageEntries = append(pageEntries, e)
+			}
 		}
 	}
 
