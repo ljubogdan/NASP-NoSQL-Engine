@@ -116,12 +116,9 @@ func StartCLI() {
 		fmt.Println(orange + "6. CHECK (sstable)" + reset)
 		fmt.Println(orange + "7. SETTINGS" + reset)
 		fmt.Println(red + "8. EXIT" + reset)
-		fmt.Println(yellow + "9. HLL ADD" + reset)
-		fmt.Println(yellow + "10. HLL COUNT" + reset)
-		fmt.Println(yellow + "11. BF ADD" + reset)
-		fmt.Println(yellow + "12. BF CHECK" + reset)
-		fmt.Println(yellow + "13. CMS ADD" + reset)
-		fmt.Println(yellow + "14. CMS COUNT" + reset)
+		fmt.Println(yellow + "9. BLOOM FILTER" + reset)
+		fmt.Println(yellow + "10. HYPERLOGLOG" + reset)
+		fmt.Println(yellow + "11. COUNT-MIN SKETCH" + reset)
 		fmt.Print("\n" + bold + blue + "════════════════════════\n\n" + reset)
 
 		fmt.Print("Status: ")
@@ -150,17 +147,11 @@ func StartCLI() {
 			fmt.Println(bold + red + "\nExiting..." + reset)
 			return
 		case "9\n":
-			returnValue = handleHLLAdd(writePathObject, readPathObject, compaction, tokenBucket)
+			returnValue = handleManageBF(writePathObject, readPathObject, compaction, tokenBucket)
 		case "10\n":
-			returnValue = handleHLLCount(readPathObject, tokenBucket)
+			returnValue = handleManageHLL(writePathObject, readPathObject, compaction, tokenBucket)
 		case "11\n":
-			returnValue = handleBFAdd(writePathObject, readPathObject, compaction, tokenBucket)
-		case "12\n":
-			returnValue = handleBFCheck(readPathObject, tokenBucket)
-		case "13\n":
-			returnValue = handleCMSAdd(writePathObject, readPathObject, compaction, tokenBucket)
-		case "14\n":
-			returnValue = handleCMSCount(readPathObject, tokenBucket)
+			returnValue = handleManageCMS(writePathObject, readPathObject, compaction, tokenBucket)
 		default:
 			returnValue = 4
 		}
@@ -182,6 +173,7 @@ func handlePut(wpo *WritePath, compaction *Compaction, tb *tokenbucket.TokenBuck
 		return 1
 	}
 
+	// Built-in structure creation
 	if strings.HasPrefix(key, "bf_") {
 		fmt.Print(bold + "\n➤ Expected elements: " + reset)
 		eStr, _ := reader.ReadString('\n')
@@ -198,9 +190,7 @@ func handlePut(wpo *WritePath, compaction *Compaction, tb *tokenbucket.TokenBuck
 			return 1
 		}
 		bf := probabilistics.NewBloomFilter(uint32(expected), fp)
-		var buffer bytes.Buffer
-		bf.Serialize(&buffer)
-		return putValue(wpo, compaction, key, buffer.Bytes())
+		return manageBF(wpo, compaction, key, bf)
 	}
 
 	if strings.HasPrefix(key, "hll_") {
@@ -212,8 +202,7 @@ func handlePut(wpo *WritePath, compaction *Compaction, tb *tokenbucket.TokenBuck
 			return 1
 		}
 		hll := probabilistics.NewHyperLogLog(uint8(prec))
-		serialized := hll.Serialize()
-		return putValue(wpo, compaction, key, *serialized)
+		return manageHLL(wpo, compaction, key, hll)
 	}
 
 	if strings.HasPrefix(key, "cms_") {
@@ -232,9 +221,7 @@ func handlePut(wpo *WritePath, compaction *Compaction, tb *tokenbucket.TokenBuck
 			return 1
 		}
 		cms := probabilistics.NewCountMinSketch(epsilon, delta)
-		var buffer bytes.Buffer
-		cms.Serialize(&buffer)
-		return putValue(wpo, compaction, key, buffer.Bytes())
+		return manageCMS(wpo, compaction, key, cms)
 	}
 
 	fmt.Print(bold + "\n➤ Enter value: " + reset)
@@ -283,39 +270,7 @@ func handleGet(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *tokenb
 			bf = probabilistics.NewBloomFilter(config.ReadBloomFilterExpectedElements(), config.ReadBloomFilterFalsePositiveRate())
 		}
 
-		fmt.Println("\n1. ADD")
-		fmt.Println("2. CHECK")
-		fmt.Println("3. EXIT")
-		fmt.Print(bold + "\n➤ Enter choice: " + reset)
-		choice, _ := reader.ReadString('\n')
-		switch choice {
-		case "1\n":
-			fmt.Print(bold + "\n➤ Enter value: " + reset)
-			val, _ := reader.ReadString('\n')
-			val = strings.TrimSpace(val)
-			if val == "" {
-				return 2
-			}
-			bf.Add([]byte(val))
-			var buffer bytes.Buffer
-			bf.Serialize(&buffer)
-			return putValue(wpo, compaction, key, buffer.Bytes())
-		case "2\n":
-			fmt.Print(bold + "\n➤ Enter value: " + reset)
-			val, _ := reader.ReadString('\n')
-			val = strings.TrimSpace(val)
-			if val == "" {
-				return 2
-			}
-			if bf.Contains([]byte(val)) {
-				fmt.Println(bold + "\n➤ Result: true" + reset)
-			} else {
-				fmt.Println(bold + "\n➤ Result: false" + reset)
-			}
-			return 0
-		default:
-			return 0
-		}
+		return manageBF(wpo, compaction, key, bf)
 	}
 
 	if strings.HasPrefix(key, "hll_") {
@@ -327,28 +282,7 @@ func handleGet(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *tokenb
 			hll = probabilistics.NewHyperLogLog(16)
 		}
 
-		fmt.Println("\n1. ADD")
-		fmt.Println("2. COUNT")
-		fmt.Println("3. EXIT")
-		fmt.Print(bold + "\n➤ Enter choice: " + reset)
-		choice, _ := reader.ReadString('\n')
-		switch choice {
-		case "1\n":
-			fmt.Print(bold + "\n➤ Enter element: " + reset)
-			val, _ := reader.ReadString('\n')
-			val = strings.TrimSpace(val)
-			if val == "" {
-				return 2
-			}
-			hll.Add([]byte(val))
-			serialized := hll.Serialize()
-			return putValue(wpo, compaction, key, *serialized)
-		case "2\n":
-			fmt.Printf(bold+"\n➤ Count: %.0f"+reset+"\n", hll.Estimate())
-			return 0
-		default:
-			return 0
-		}
+		return manageHLL(wpo, compaction, key, hll)
 	}
 
 	if strings.HasPrefix(key, "cms_") {
@@ -363,36 +297,7 @@ func handleGet(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *tokenb
 			cms = probabilistics.NewCountMinSketch(0.01, 0.01)
 		}
 
-		fmt.Println("\n1. ADD")
-		fmt.Println("2. COUNT")
-		fmt.Println("3. EXIT")
-		fmt.Print(bold + "\n➤ Enter choice: " + reset)
-		choice, _ := reader.ReadString('\n')
-		switch choice {
-		case "1\n":
-			fmt.Print(bold + "\n➤ Enter value: " + reset)
-			val, _ := reader.ReadString('\n')
-			val = strings.TrimSpace(val)
-			if val == "" {
-				return 2
-			}
-			cms.Add(val)
-			var buffer bytes.Buffer
-			cms.Serialize(&buffer)
-			return putValue(wpo, compaction, key, buffer.Bytes())
-		case "2\n":
-			fmt.Print(bold + "\n➤ Enter value: " + reset)
-			val, _ := reader.ReadString('\n')
-			val = strings.TrimSpace(val)
-			if val == "" {
-				return 2
-			}
-			count := cms.Count(val)
-			fmt.Printf(bold+"\n➤ Count: %d"+reset+"\n", count)
-			return 0
-		default:
-			return 0
-		}
+		return manageCMS(wpo, compaction, key, cms)
 	}
 
 	if len(result.Value) == 0 {
@@ -619,8 +524,7 @@ func putValue(wpo *WritePath, compaction *Compaction, key string, value []byte) 
 	return returnValue
 }
 
-// ----------------------------- HyperLogLog -----------------------------
-func handleHLLAdd(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *tokenbucket.TokenBucket) uint32 {
+func handleManageBF(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *tokenbucket.TokenBucket) uint32 {
 	if !tb.Allow(1) {
 		return 6
 	}
@@ -631,72 +535,6 @@ func handleHLLAdd(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *tok
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return 1
-	}
-
-	fmt.Print(bold + "\n➤ Enter element: " + reset)
-	val, _ := reader.ReadString('\n')
-	val = strings.TrimSpace(val)
-	if val == "" {
-		return 2
-	}
-
-	result, exists := rpo.ReadEntry(key)
-	var hll *probabilistics.HyperLogLog
-	if exists && len(result.Value) > 0 {
-		data := result.Value
-		hll = probabilistics.Deserialize_HLL(&data)
-	} else {
-		hll = probabilistics.NewHyperLogLog(16)
-	}
-
-	hll.Add([]byte(val))
-	serialized := hll.Serialize()
-	return putValue(wpo, compaction, key, *serialized)
-}
-
-func handleHLLCount(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {
-	if !tb.Allow(1) {
-		return 6
-	}
-
-	fmt.Print(bold + "\n➤ Enter key: " + reset)
-	reader := bufio.NewReader(os.Stdin)
-	key, _ := reader.ReadString('\n')
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return 1
-	}
-
-	result, exists := rpo.ReadEntry(key)
-	if !exists || len(result.Value) == 0 {
-		fmt.Println(bold + "\n➤ Count: 0" + reset)
-		return 0
-	}
-	data := result.Value
-	hll := probabilistics.Deserialize_HLL(&data)
-	fmt.Printf(bold+"\n➤ Count: %.0f"+reset+"\n", hll.Estimate())
-	return 0
-}
-
-// ----------------------------- Bloom Filter -----------------------------
-func handleBFAdd(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *tokenbucket.TokenBucket) uint32 {
-	if !tb.Allow(1) {
-		return 6
-	}
-
-	fmt.Print(bold + "\n➤ Enter key: " + reset)
-	reader := bufio.NewReader(os.Stdin)
-	key, _ := reader.ReadString('\n')
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return 1
-	}
-
-	fmt.Print(bold + "\n➤ Enter value: " + reset)
-	val, _ := reader.ReadString('\n')
-	val = strings.TrimSpace(val)
-	if val == "" {
-		return 2
 	}
 
 	result, exists := rpo.ReadEntry(key)
@@ -708,16 +546,27 @@ func handleBFAdd(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *toke
 			bf = probabilistics.NewBloomFilter(config.ReadBloomFilterExpectedElements(), config.ReadBloomFilterFalsePositiveRate())
 		}
 	} else {
-		bf = probabilistics.NewBloomFilter(config.ReadBloomFilterExpectedElements(), config.ReadBloomFilterFalsePositiveRate())
+		fmt.Print(bold + "\n➤ Expected elements: " + reset)
+		eStr, _ := reader.ReadString('\n')
+		eStr = strings.TrimSpace(eStr)
+		expected, err := strconv.Atoi(eStr)
+		if err != nil || expected <= 0 {
+			return 1
+		}
+		fmt.Print(bold + "\n➤ False positive rate: " + reset)
+		fpStr, _ := reader.ReadString('\n')
+		fpStr = strings.TrimSpace(fpStr)
+		fp, err := strconv.ParseFloat(fpStr, 64)
+		if err != nil {
+			return 1
+		}
+		bf = probabilistics.NewBloomFilter(uint32(expected), fp)
 	}
 
-	bf.Add([]byte(val))
-	var buffer bytes.Buffer
-	bf.Serialize(&buffer)
-	return putValue(wpo, compaction, key, buffer.Bytes())
+	return manageBF(wpo, compaction, key, bf)
 }
 
-func handleBFCheck(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {
+func handleManageHLL(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *tokenbucket.TokenBucket) uint32 {
 	if !tb.Allow(1) {
 		return 6
 	}
@@ -728,35 +577,28 @@ func handleBFCheck(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return 1
-	}
-
-	fmt.Print(bold + "\n➤ Enter value: " + reset)
-	val, _ := reader.ReadString('\n')
-	val = strings.TrimSpace(val)
-	if val == "" {
-		return 2
 	}
 
 	result, exists := rpo.ReadEntry(key)
-	if !exists || len(result.Value) <= 4 {
-		fmt.Println(bold + "\n➤ Result: false" + reset)
-		return 0
-	}
-	bf, err := probabilistics.DeserializeFromBytes_BF(result.Value[4:])
-	if err != nil {
-		fmt.Println(bold + "\n➤ Result: false" + reset)
-		return 0
-	}
-	if bf.Contains([]byte(val)) {
-		fmt.Println(bold + "\n➤ Result: true" + reset)
+	var hll *probabilistics.HyperLogLog
+	if exists && len(result.Value) > 0 {
+		data := result.Value
+		hll = probabilistics.Deserialize_HLL(&data)
 	} else {
-		fmt.Println(bold + "\n➤ Result: false" + reset)
+		fmt.Print(bold + "\n➤ Precision: " + reset)
+		pStr, _ := reader.ReadString('\n')
+		pStr = strings.TrimSpace(pStr)
+		p, err := strconv.Atoi(pStr)
+		if err != nil {
+			return 1
+		}
+		hll = probabilistics.NewHyperLogLog(uint8(p))
 	}
-	return 0
+
+	return manageHLL(wpo, compaction, key, hll)
 }
 
-// ----------------------------- Count-Min Sketch -----------------------------
-func handleCMSAdd(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *tokenbucket.TokenBucket) uint32 {
+func handleManageCMS(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *tokenbucket.TokenBucket) uint32 {
 	if !tb.Allow(1) {
 		return 6
 	}
@@ -767,13 +609,6 @@ func handleCMSAdd(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *tok
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return 1
-	}
-
-	fmt.Print(bold + "\n➤ Enter value: " + reset)
-	val, _ := reader.ReadString('\n')
-	val = strings.TrimSpace(val)
-	if val == "" {
-		return 2
 	}
 
 	result, exists := rpo.ReadEntry(key)
@@ -785,46 +620,125 @@ func handleCMSAdd(wpo *WritePath, rpo *ReadPath, compaction *Compaction, tb *tok
 			cms = probabilistics.NewCountMinSketch(0.01, 0.01)
 		}
 	} else {
-		cms = probabilistics.NewCountMinSketch(0.01, 0.01)
+		fmt.Print(bold + "\n➤ Epsilon: " + reset)
+		eStr, _ := reader.ReadString('\n')
+		eStr = strings.TrimSpace(eStr)
+		epsilon, err := strconv.ParseFloat(eStr, 64)
+		if err != nil {
+			return 1
+		}
+		fmt.Print(bold + "\n➤ Delta: " + reset)
+		dStr, _ := reader.ReadString('\n')
+		dStr = strings.TrimSpace(dStr)
+		delta, err := strconv.ParseFloat(dStr, 64)
+		if err != nil {
+			return 1
+		}
+		cms = probabilistics.NewCountMinSketch(epsilon, delta)
 	}
 
-	cms.Add(val)
-	var buffer bytes.Buffer
-	cms.Serialize(&buffer)
-	return putValue(wpo, compaction, key, buffer.Bytes())
+	return manageCMS(wpo, compaction, key, cms)
 }
 
-func handleCMSCount(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {
-	if !tb.Allow(1) {
-		return 6
-	}
-
-	fmt.Print(bold + "\n➤ Enter key: " + reset)
+// --------------------------- Structure Helpers ---------------------------
+func manageBF(wpo *WritePath, compaction *Compaction, key string, bf *probabilistics.BloomFilter) uint32 {
 	reader := bufio.NewReader(os.Stdin)
-	key, _ := reader.ReadString('\n')
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return 1
+	for {
+		fmt.Println("\n1. ADD")
+		fmt.Println("2. CHECK")
+		fmt.Println("3. EXIT")
+		fmt.Print(bold + "\n➤ Enter choice: " + reset)
+		choice, _ := reader.ReadString('\n')
+		switch choice {
+		case "1\n":
+			fmt.Print(bold + "\n➤ Enter value: " + reset)
+			val, _ := reader.ReadString('\n')
+			val = strings.TrimSpace(val)
+			if val == "" {
+				fmt.Println(bold + red + "[ERROR] Value cannot be empty!" + reset)
+				continue
+			}
+			bf.Add([]byte(val))
+		case "2\n":
+			fmt.Print(bold + "\n➤ Enter value: " + reset)
+			val, _ := reader.ReadString('\n')
+			val = strings.TrimSpace(val)
+			if val == "" {
+				fmt.Println(bold + red + "[ERROR] Value cannot be empty!" + reset)
+				continue
+			}
+			if bf.Contains([]byte(val)) {
+				fmt.Println(bold + "\n➤ Result: true" + reset)
+			} else {
+				fmt.Println(bold + "\n➤ Result: false" + reset)
+			}
+		default:
+			var buffer bytes.Buffer
+			bf.Serialize(&buffer)
+			return putValue(wpo, compaction, key, buffer.Bytes())
+		}
 	}
+}
 
-	fmt.Print(bold + "\n➤ Enter value: " + reset)
-	val, _ := reader.ReadString('\n')
-	val = strings.TrimSpace(val)
-	if val == "" {
-		return 2
+func manageHLL(wpo *WritePath, compaction *Compaction, key string, hll *probabilistics.HyperLogLog) uint32 {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Println("\n1. ADD")
+		fmt.Println("2. COUNT")
+		fmt.Println("3. EXIT")
+		fmt.Print(bold + "\n➤ Enter choice: " + reset)
+		choice, _ := reader.ReadString('\n')
+		switch choice {
+		case "1\n":
+			fmt.Print(bold + "\n➤ Enter element: " + reset)
+			val, _ := reader.ReadString('\n')
+			val = strings.TrimSpace(val)
+			if val == "" {
+				fmt.Println(bold + red + "[ERROR] Value cannot be empty!" + reset)
+				continue
+			}
+			hll.Add([]byte(val))
+		case "2\n":
+			fmt.Printf(bold+"\n➤ Count: %.0f"+reset+"\n", hll.Estimate())
+		default:
+			serialized := hll.Serialize()
+			return putValue(wpo, compaction, key, *serialized)
+		}
 	}
+}
 
-	result, exists := rpo.ReadEntry(key)
-	if !exists || len(result.Value) == 0 {
-		fmt.Println(bold + "\n➤ Count: 0" + reset)
-		return 0
+func manageCMS(wpo *WritePath, compaction *Compaction, key string, cms *probabilistics.CountMinSketch) uint32 {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Println("\n1. ADD")
+		fmt.Println("2. COUNT")
+		fmt.Println("3. EXIT")
+		fmt.Print(bold + "\n➤ Enter choice: " + reset)
+		choice, _ := reader.ReadString('\n')
+		switch choice {
+		case "1\n":
+			fmt.Print(bold + "\n➤ Enter value: " + reset)
+			val, _ := reader.ReadString('\n')
+			val = strings.TrimSpace(val)
+			if val == "" {
+				fmt.Println(bold + red + "[ERROR] Value cannot be empty!" + reset)
+				continue
+			}
+			cms.Add(val)
+		case "2\n":
+			fmt.Print(bold + "\n➤ Enter value: " + reset)
+			val, _ := reader.ReadString('\n')
+			val = strings.TrimSpace(val)
+			if val == "" {
+				fmt.Println(bold + red + "[ERROR] Value cannot be empty!" + reset)
+				continue
+			}
+			count := cms.Count(val)
+			fmt.Printf(bold+"\n➤ Count: %d"+reset+"\n", count)
+		default:
+			var buffer bytes.Buffer
+			cms.Serialize(&buffer)
+			return putValue(wpo, compaction, key, buffer.Bytes())
+		}
 	}
-	cms, err := probabilistics.DeserializeFromBytes_CMS(result.Value)
-	if err != nil {
-		fmt.Println(bold + "\n➤ Count: 0" + reset)
-		return 0
-	}
-	count := cms.Count(val)
-	fmt.Printf(bold+"\n➤ Count: %d"+reset+"\n", count)
-	return 0
 }
