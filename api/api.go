@@ -117,10 +117,8 @@ func StartCLI() {
 		fmt.Println(yellow + "5. DELETE (key)" + reset)
 		fmt.Println(orange + "6. CHECK (sstable)" + reset)
 		fmt.Println(orange + "7. SETTINGS" + reset)
+		fmt.Println()
 		fmt.Println(red + "8. EXIT" + reset)
-		fmt.Println(yellow + "9. BLOOM FILTER" + reset)
-		fmt.Println(yellow + "10. HYPERLOGLOG" + reset)
-		fmt.Println(yellow + "11. COUNT-MIN SKETCH" + reset)
 		fmt.Print("\n" + bold + blue + "════════════════════════\n\n" + reset)
 
 		fmt.Print("Status: ")
@@ -148,12 +146,6 @@ func StartCLI() {
 		case "8\n":
 			fmt.Println(bold + red + "\nExiting..." + reset)
 			return
-		case "9\n":
-			returnValue = handleManageBF(writePathObject, readPathObject, compaction, tokenBucket)
-		case "10\n":
-			returnValue = handleManageHLL(writePathObject, readPathObject, compaction, tokenBucket)
-		case "11\n":
-			returnValue = handleManageCMS(writePathObject, readPathObject, compaction, tokenBucket)
 		default:
 			returnValue = 4
 		}
@@ -364,7 +356,6 @@ func handlePrefixScan(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {
 			break
 		}
 	}
-	fmt.Println(max)
 
 	rangeScan := NewRangeScan(rpo, min, max)
 	handlePageIteration(rpo, rangeScan, false)
@@ -416,7 +407,7 @@ func handlePageIteration(rpo *ReadPath, rangeScan *RangeScan, inclusive bool) {
 	pageCache := make([][]entry.Entry, config.ReadPageCacheSize())
 	cacheIndex := 0
 	pageCache[cacheIndex] = *rangeScan.NextPage()
-	for true {
+	for {
 		fmt.Println(bold + "\n➤ Page " + strconv.Itoa(pageNum) + ": " + reset)
 		for i := 0; i < len(pageCache[cacheIndex]); i++ {
 			if pageCache[cacheIndex][i].Key != rangeScan.max || inclusive {

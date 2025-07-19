@@ -9,6 +9,7 @@ import (
 	"NASP-NoSQL-Engine/internal/sstable"
 	"NASP-NoSQL-Engine/internal/trees"
 	"encoding/binary"
+	"fmt"
 )
 
 /*
@@ -324,6 +325,10 @@ func (rpo *ReadPath) FindInData(sstableName string, blockSize uint32, offset uin
 	correctedOffset := offset - toSubtract
 
 	crcVarint := encoded_entry.ReadVarint(block.Data[correctedOffset:])
+
+	crcVarintUint32, err := encoded_entry.VarintToUint32(crcVarint)      // flag
+	HandleError(err, "Failed to convert varint to uint32")
+
 	correctedOffset += uint32(len(crcVarint))
 	timestampVarint := encoded_entry.ReadVarint(block.Data[correctedOffset:])
 	correctedOffset += uint32(len(timestampVarint))
@@ -406,8 +411,35 @@ func (rpo *ReadPath) FindInData(sstableName string, blockSize uint32, offset uin
 			keyUint32, err := encoded_entry.VarintToUint32(keyBytes)
 			HandleError(err, "Failed to convert varint to uint32")
 			key := rpo.BlockManager.BidirectionalMap.GetByUint32(keyUint32)
+
+			// proveravamo da li je došlo do promene crc32 nakon ponovnog računanja crc32
+
+			keyBytes = []byte(key) // ako je kompresija, onda moramo da koristimo key koji je u bidirekcionoj mapi
+
+			bytes := make([]byte, 0)
+			bytes = append(bytes, keyBytes...)
+			bytes = append(bytes, valueBytes...)
+
+			if crcVarintUint32 != entry.CRC32(bytes) {
+				fmt.Println("\nIntegrity of data is compromised for key:", key)
+				fmt.Println("Expected CRC32:", crcVarintUint32)
+				fmt.Println("Calculated CRC32:", entry.CRC32(bytes))
+			}
+
 			return entry.Entry{Key: key, Value: valueBytes}, true
 		} else {
+
+			// proveravamo da li je došlo do promene crc32 nakon ponovnog računanja crc32
+			bytes := make([]byte, 0)
+			bytes = append(bytes, keyBytes...)
+			bytes = append(bytes, valueBytes...)
+
+			if crcVarintUint32 != entry.CRC32(bytes) {
+				fmt.Println("\nIntegrity of data is compromised for key:", string(keyBytes))
+				fmt.Println("Expected CRC32:", crcVarintUint32)
+				fmt.Println("Calculated CRC32:", entry.CRC32(bytes))
+			}
+
 			return entry.Entry{Key: string(keyBytes), Value: valueBytes}, true
 		}
 	}
@@ -438,6 +470,7 @@ func (rpo *ReadPath) FindInDataByIterator(iterator *sstable.SSTableIterator) (en
 
 	crcVarint := encoded_entry.ReadVarint(block.Data[correctedOffset:])
 	crc, err := encoded_entry.VarintToUint32(crcVarint)
+
 	if err != nil {
 		if iterator.Offset%iterator.BlockSize == 0 {
 			return entry.Entry{}, false
@@ -605,8 +638,31 @@ func (rpo *ReadPath) FindInDataByIterator(iterator *sstable.SSTableIterator) (en
 			keyUint32, err := encoded_entry.VarintToUint32(keyBytes)
 			HandleError(err, "Failed to convert varint to uint32")
 			key := rpo.BlockManager.BidirectionalMap.GetByUint32(keyUint32)
+
+			keyBytes = []byte(key) // ako je kompresija, onda moramo da koristimo key koji je u bidirekcionoj mapi
+
+			bytes := make([]byte, 0)
+			bytes = append(bytes, keyBytes...)
+			bytes = append(bytes, valueBytes...)
+
+			if crc != entry.CRC32(bytes) {
+				fmt.Println("\nIntegrity of data is compromised for key:", key)
+				fmt.Println("Expected CRC32:", crc)
+				fmt.Println("Calculated CRC32:", entry.CRC32(bytes))
+			}
+
 			return entry.Entry{Key: key, Value: valueBytes, ValueSize: valueSize, KeySize: uint64(keySize), Tombstone: tombstone, CRC: crc, Timestamp: timestamp}, true
 		} else {
+
+			bytes := make([]byte, 0)
+			bytes = append(bytes, keyBytes...)
+			bytes = append(bytes, valueBytes...)
+
+			if crc != entry.CRC32(bytes) {
+				fmt.Println("\nIntegrity of data is compromised for key:", string(keyBytes))
+				fmt.Println("Expected CRC32:", crc)
+				fmt.Println("Calculated CRC32:", entry.CRC32(bytes))
+			}
 			return entry.Entry{Key: string(keyBytes), Value: valueBytes, ValueSize: valueSize, KeySize: uint64(keySize), Tombstone: tombstone, CRC: crc, Timestamp: timestamp}, true
 		}
 	}
