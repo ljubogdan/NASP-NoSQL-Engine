@@ -273,9 +273,6 @@ func (rpo *ReadPath) ReadEntry(key string) (entry.Entry, bool) {
 					// učitavamo summary
 					summary := rpo.FindAndDeserializeNONMergeSummary(sstable.SSTableName, sstable.BlockSize, compression)
 
-					// printujemo kako izgleda summary ------------------------>>>>>> obrisati kasnije
-					summary.Print(compression)
-
 					// proveravamo da li se ključ nalazi u opsegu summarija (radimo sa string ili byte verzijom ključa)
 					stringLowerBound, stringUpperBound := rpo.SetBounds(key, summary, compression)
 
@@ -730,6 +727,12 @@ func (rpo *ReadPath) FindInIndex(sstableName string, blockSize uint32, key strin
 				offset, err := encoded_entry.VarintToUint32(offsetBytes)
 				HandleError(err, "Failed to convert varint to uint32")
 				return true, offset
+			} else if rpo.BlockManager.BidirectionalMap.GetByUint32(potentialKeyUint32) > key {
+				// pročitamo offset
+				offsetBytes := encoded_entry.ReadVarint(completeBlock[i:])
+				offset, err := encoded_entry.VarintToUint32(offsetBytes)
+				HandleError(err, "Failed to convert varint to uint32")
+				return false, offset
 			}
 		} else {
 			if string(potentialKeyBytes) == key {
@@ -738,6 +741,11 @@ func (rpo *ReadPath) FindInIndex(sstableName string, blockSize uint32, key strin
 				offset, err := encoded_entry.VarintToUint32(offsetBytes)
 				HandleError(err, "Failed to convert varint to uint32")
 				return true, offset
+			} else if string(potentialKeyBytes) > key {
+				offsetBytes := encoded_entry.ReadVarint(completeBlock[i:])
+				offset, err := encoded_entry.VarintToUint32(offsetBytes)
+				HandleError(err, "Failed to convert varint to uint32")
+				return false, offset
 			}
 		}
 
@@ -1273,9 +1281,6 @@ func (rpo *ReadPath) GetStartingIteratorsForRange(min string, max string) *[]sst
 				// učitavamo summary
 				summary := rpo.FindAndDeserializeNONMergeSummary(sst.SSTableName, sst.BlockSize, compression)
 
-				// printujemo kako izgleda summary ------------------------>>>>>> obrisati kasnije
-				summary.Print(compression)
-
 				// proveravamo da li se ključ nalazi u opsegu summarija (radimo sa string ili byte verzijom ključa)
 				stringLowerBound, stringUpperBound := rpo.SetBounds(min, summary, compression)
 
@@ -1352,9 +1357,6 @@ func (rpo *ReadPath) GetStartingIteratorsForTables(tables *[]*sstable.SSTable) *
 
 			// učitavamo summary
 			summary := rpo.FindAndDeserializeNONMergeSummary(sst.SSTableName, sst.BlockSize, compression)
-
-			// printujemo kako izgleda summary ------------------------>>>>>> obrisati kasnije
-			summary.Print(compression)
 
 			if compression {
 				iterators = append(iterators, sstable.SSTableIterator{SSTableName: sst.SSTableName, Merge: sst.Merge, Compression: compression, BlockSize: sst.BlockSize, Offset: 0, LastKey: rpo.BlockManager.BidirectionalMap.GetByUint32(summary.MaxKeyVarint)})
@@ -1435,9 +1437,6 @@ func (rpo *ReadPath) GetOverlapingIterators(tables *[]*sstable.SSTable, level ui
 			// učitavamo summary
 			summary := rpo.FindAndDeserializeNONMergeSummary(sst.SSTableName, sst.BlockSize, compression)
 
-			// printujemo kako izgleda summary ------------------------>>>>>> obrisati kasnije
-			summary.Print(compression)
-
 			if compression {
 				iterators = append(iterators, sstable.SSTableIterator{SSTableName: sst.SSTableName, Merge: sst.Merge, Compression: compression, BlockSize: sst.BlockSize, Offset: 0, LastKey: rpo.BlockManager.BidirectionalMap.GetByUint32(summary.MaxKeyVarint)})
 			} else {
@@ -1496,9 +1495,6 @@ func (rpo *ReadPath) GetOverlapingIterators(tables *[]*sstable.SSTable, level ui
 
 			// učitavamo summary
 			summary := rpo.FindAndDeserializeNONMergeSummary(sst.SSTableName, sst.BlockSize, compression)
-
-			// printujemo kako izgleda summary ------------------------>>>>>> obrisati kasnije
-			summary.Print(compression)
 
 			if !(string(summary.MinKey) > upperLimit || string(summary.MaxKey) < lowerLimit) {
 				if compression {

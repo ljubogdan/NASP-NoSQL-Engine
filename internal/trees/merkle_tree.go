@@ -2,7 +2,6 @@ package trees
 
 import (
 	"crypto/sha256"
-	"fmt"
 	"sync"
 )
 
@@ -201,7 +200,6 @@ func Deserialize_MT(data *[]byte) *MerkleTree {
 			}
 		}
 		blockCount--
-		fmt.Println(blockCount)
 
 		hashCount := blockCount
 		height := 0

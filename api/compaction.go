@@ -31,7 +31,8 @@ func (comp *Compaction) CheckForCompaction() (*[]sstable.SSTableIterator, uint16
 	default:
 		fallthrough
 	case "size_tired":
-		for _, sstLevel := range comp.readPath.SSTablesManager.Levels {
+		for i := 0; i < len(comp.readPath.SSTablesManager.Levels)-1; i++ {
+			sstLevel := comp.readPath.SSTablesManager.Levels[i]
 			level++
 			if len(sstLevel) >= int(comp.size) {
 				sstables = sstLevel[:comp.size]
@@ -41,7 +42,8 @@ func (comp *Compaction) CheckForCompaction() (*[]sstable.SSTableIterator, uint16
 		return comp.readPath.GetStartingIteratorsForTables(&sstables), min(level, uint16(len(comp.readPath.SSTablesManager.Levels)-1))
 
 	case "leveled":
-		for _, sstLevel := range comp.readPath.SSTablesManager.Levels {
+		for i := 0; i < len(comp.readPath.SSTablesManager.Levels)-1; i++ {
+			sstLevel := comp.readPath.SSTablesManager.Levels[i]
 			level++
 			if len(sstLevel) >= int(comp.size) {
 				sstables = sstLevel[:comp.size]

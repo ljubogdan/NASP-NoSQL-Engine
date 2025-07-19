@@ -53,6 +53,8 @@ func message(returnValue uint32) {
 		fmt.Print(bold + red + "[ERROR] Rate limit exceeded!" + reset)
 	case 7:
 		fmt.Print(bold + red + "[ERROR] Unknown identifier!" + reset)
+	case 8:
+		fmt.Print(bold + red + "[ERROR] Invalid value range!" + reset)
 	default:
 		fmt.Print(bold + red + "[ERROR] Unknown error." + reset)
 	}
@@ -331,7 +333,7 @@ func handleRangeScan(rpo *ReadPath, tb *tokenbucket.TokenBucket) uint32 {
 	}
 
 	if max < min {
-		return 1
+		return 8
 	}
 
 	rangeScan := NewRangeScan(rpo, min, max)
@@ -491,9 +493,9 @@ func handleCheck(rpo *ReadPath) uint32 {
 
 	blockInexes := rpo.CheckIntegrity(table)
 	if len(blockInexes) == 0 {
-		fmt.Println("There was no change detected in sstable data")
+		fmt.Println(bold + "\n➤ Resutl: " + reset + "There was no change detected in sstable data")
 	} else {
-		fmt.Println("There appears to be a change in block(s) with index(es): ", blockInexes)
+		fmt.Println(bold+"\n➤ Resutl: "+reset+"There appears to be a change in block(s) with index(es): ", blockInexes)
 	}
 	return 0
 }

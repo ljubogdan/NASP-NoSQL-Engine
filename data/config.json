@@ -26,10 +26,10 @@
     "COMPACTION": {
       "max": 5,
       "method": "leveled",
-      "size": 5
+      "size": 2
     },
     "COMPRESSION": false,
-    "MERGE": true,
+    "MERGE": false,
     "SSTABLE_SUMMARY": {
       "thinning": 2
     }
@@ -48,7 +48,7 @@
   },
   "WAL": {
     "blocks_per_wal": 5,
-    "low_watermark": 1
+    "low_watermark": 2
   },
   "WAL_POOL": {
     "capacity": 5
